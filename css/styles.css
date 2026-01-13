@@ -1,0 +1,17 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+canvas {
+  position: absolute;
+  inset: 0;
+}
+
+#gui-container {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 380px;
+}

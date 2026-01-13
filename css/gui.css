@@ -1,0 +1,154 @@
+.gui {
+  position: relative;
+  background-color: #2c2c2c;
+  color: #e0e0e0;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 13px;
+  padding: 20px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  user-select: none;
+
+  display: none;
+
+  &.visible {
+    display: block;
+  }
+}
+
+.title {
+  display: flex;
+  flex-direction: row;
+  font-weight: bold;
+  justify-content: space-between;
+  cursor: pointer;
+
+  svg {
+    height: 12px;
+  }
+}
+
+.gui-scroller {
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.gui-rows {
+  interpolate-size: allow-keywords;
+
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  flex-direction: column;
+  height: 0;
+  overflow: hidden;
+  transition: height 100ms ease-in-out;
+  border-top: 1px solid #888;
+
+  &.visible {
+    height: auto;
+    margin-top: 12px;
+    padding-top: 12px;
+    opacity: 1;
+  }
+}
+
+.gui-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 24px;
+
+  &.disabled {
+    pointer-events: none;
+    opacity: 0.5;
+  }
+}
+
+.gui-separator {
+  border-top: 1px solid #888;
+}
+
+.gui-label {
+  opacity: 0.8;
+  padding-right: 10px;
+  flex: 1;
+}
+
+.gui input,
+.gui select,
+.gui button {
+  background: #3e3e3e;
+  border: 1px solid #555;
+  color: white;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  outline: none;
+}
+
+.gui input[type="checkbox"] {
+  accent-color: white;
+}
+
+.gui select {
+  width: calc(100% - 140px);
+}
+
+.gui input:focus,
+.gui select:focus {
+  border-color: #888;
+}
+
+.gui-input-text {
+  width: 120px;
+}
+.gui-select {
+  width: 134px;
+}
+.gui-btn {
+  width: 100%;
+  cursor: pointer;
+  background: #4a4a4a;
+}
+.gui-btn:hover {
+  background: #5a5a5a;
+}
+.gui-btn:active {
+  background: #333;
+}
+
+.gui-slider-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 140px);
+}
+.gui-slider {
+  flex-grow: 1;
+  cursor: pointer;
+}
+.gui-slider-val {
+  width: 100px;
+  text-align: right;
+  opacity: 0.7;
+  font-size: 11px;
+}
+
+.gui-row:has(.gui-separator) {
+  height: 12px;
+}
+
+.gui-row:has(.gui-text),
+.gui-row:has(.gui-label) {
+  height: auto;
+  min-height: 24px;
+}
+
+.gui-separator {
+  background: #888;
+  height: 1px;
+  width: 100%;
+}
