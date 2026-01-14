@@ -58,6 +58,10 @@ const gui = new GUI(
 gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
 gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
 gui.addButton("Random", randomize);
+gui.addSeparator();
+gui.addText(
+  "<p>Press R to randomize colors and shapes.</p><p>Press Space to toggle rotation.</p>"
+);
 gui.show();
 
 const vertexShader = `
