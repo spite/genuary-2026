@@ -1,5 +1,11 @@
 const shader = `
 
+// Sphere 
+
+float sdSphere( vec3 p, float s ){
+    return length(p)-s;
+}
+
 // Rounded box
 float sdRoundBox(vec3 p, vec3 b, float r) {
   vec3 q = abs(p) - b;
