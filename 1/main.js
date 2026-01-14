@@ -99,8 +99,7 @@ float map(in vec3 p) {
     b = sdTetrahedron(p, .4, r);
   }
 
-  float s = (1. + .5 * parabola(factor, 1.));
-  return mix(a * s, b * s, elasticOut(factor));
+  return mix(a, b, elasticOut(factor, 5.));
 }
 
 ${raymarch}
