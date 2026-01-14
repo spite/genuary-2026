@@ -32,18 +32,18 @@ float bounceInOut(float t) {
 
 // Elastic
 
-float elasticOut(float t, float decay) {
-    return sin(-13.0 * (t + 1.0) * MPI * 0.5) * pow(2.0, -decay * t) + 1.0;
+float elasticOut(float t, float decay, float freq) {
+    return sin(-freq * (t + 1.0) * MPI * 0.5) * pow(2.0, -decay * t) + 1.0;
 }
 
-float elasticIn(float t, float decay) {
-    return sin(13.0 * t * MPI * 0.5) * pow(2.0, decay * (t - 1.0));
+float elasticIn(float t, float decay, float freq) {
+    return sin(freq * t * MPI * 0.5) * pow(2.0, decay * (t - 1.0));
 }
 
-float elasticInOut(float t, float decay) {
+float elasticInOut(float t, float decay, float freq) {
     return t < 0.5
-        ? 0.5 * sin(13.0 * (2.0 * t) * MPI * 0.5) * pow(2.0, decay * ((2.0 * t) - 1.0))
-        : 0.5 * (sin(-13.0 * ((2.0 * t - 1.0) + 1.0) * MPI * 0.5) * pow(2.0, -decay * (2.0 * t - 1.0)) + 2.0);
+        ? 0.5 * sin(freq * (2.0 * t) * MPI * 0.5) * pow(2.0, decay * ((2.0 * t) - 1.0))
+        : 0.5 * (sin(-freq * ((2.0 * t - 1.0) + 1.0) * MPI * 0.5) * pow(2.0, -decay * (2.0 * t - 1.0)) + 2.0);
 }
 
 // Back
