@@ -105,3 +105,77 @@ export function computed(fn) {
 
   return computedSignal;
 }
+
+export function tweened(initialValue, duration = 400) {
+  let value = initialValue;
+  let startValue = initialValue;
+  let targetValue = initialValue;
+
+  let startTime = null;
+  let animationFrame = null;
+  const subscribers = new Set();
+
+  const sig = () => {
+    track(subscribers);
+    return value;
+  };
+
+  const tick = (now) => {
+    if (!startTime) startTime = now;
+
+    const elapsed = now - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    value = startValue + (targetValue - startValue) * progress;
+
+    trigger(subscribers);
+
+    if (progress < 1) {
+      animationFrame = requestAnimationFrame(tick);
+    } else {
+      value = targetValue;
+      startTime = null;
+      animationFrame = null;
+    }
+  };
+
+  sig.set = (newValue) => {
+    if (newValue === targetValue) return;
+
+    if (animationFrame) {
+      cancelAnimationFrame(animationFrame);
+    }
+
+    startValue = value;
+    targetValue = newValue;
+    startTime = null;
+
+    if (duration === 0) {
+      value = targetValue;
+      trigger(subscribers);
+    } else {
+      animationFrame = requestAnimationFrame(tick);
+    }
+  };
+
+  sig.update = (updater) => {
+    sig.set(updater(value));
+  };
+
+  sig.reset = (newValue) => {
+    if (animationFrame) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+    }
+
+    startTime = null;
+
+    value = newValue;
+    startValue = newValue;
+    targetValue = newValue;
+
+    trigger(subscribers);
+  };
+
+  return sig;
+}
