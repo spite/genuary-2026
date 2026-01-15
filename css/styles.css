@@ -4,6 +4,10 @@
   padding: 0;
 }
 
+body {
+  overflow: hidden;
+}
+
 .hide-ui #gui-container {
   display: none;
 }
