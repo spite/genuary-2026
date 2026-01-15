@@ -80,13 +80,7 @@ const Easings = {
     }
     return Easings.OutBounce(t * 2 - 1) * 0.5 + 1 * 0.5;
   },
-  InElastic: function (t, amplitude, period) {
-    if (typeof period == "undefined") {
-      period = 0;
-    }
-    if (typeof amplitude == "undefined") {
-      amplitude = 1;
-    }
+  InElastic: function (t, amplitude = 1, period = 0) {
     var offset = 1.70158;
 
     if (t == 0) return 0;
@@ -109,13 +103,7 @@ const Easings = {
       Math.sin(((t - offset) * (Math.PI * 2)) / period)
     );
   },
-  OutElastic: function (t, amplitude, period) {
-    if (typeof period == "undefined") {
-      period = 0;
-    }
-    if (typeof amplitude == "undefined") {
-      amplitude = 1;
-    }
+  OutElastic: function (t, amplitude = 1, period = 0) {
     var offset = 1.70158;
 
     if (t == 0) return 0;
@@ -199,8 +187,7 @@ const Easings = {
     t = t - 1;
     return t * t * ((overshoot + 1) * t + overshoot) + 1;
   },
-  InOutBack: function (t, overshoot) {
-    if (overshoot == undefined) overshoot = 1.70158;
+  InOutBack: function (t, overshoot = 1.70158) {
     if ((t /= 0.5) < 1)
       return 0.5 * (t * t * (((overshoot *= 1.525) + 1) * t - overshoot));
     return (
