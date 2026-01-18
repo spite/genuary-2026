@@ -73,7 +73,7 @@ gui.addSlider("Metalness", params.metalness, 0, 1, 0.01, (metalness) => {
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
-  "<p>Press R to randomize the positions.</p><p>Press Space to toggle the animation.</p><p>Press Tab to toggle this GUI.</p>"
+  "<p>Press <b>R</b> to randomize the positions.</p><p>Press <b>Space</b> to toggle the animation.</p><p>Press <b>Tab</b> to toggle this GUI.</p>"
 );
 gui.show();
 
