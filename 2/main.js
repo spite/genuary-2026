@@ -39,7 +39,7 @@ const rainbow = [
 
 const defaults = {
   seed: 1337,
-  points: 1,
+  points: 50,
   scale: 1,
   roughness: 0.15,
   metalness: 0.5,
@@ -52,23 +52,7 @@ const gui = new GUI(
   document.querySelector("#gui-container")
 );
 gui.addSlider("Points", params.points, 1, 250, 1, () => {
-  POINTS = params.points();
-  targets = pointsOnSphere(POINTS, 2).map((p, i) => {
-    return { id: i, point: p, color: new Color(Maf.randomElement(rainbow)) };
-  });
-  for (const boing of boings) {
-    group.remove(boing.mesh);
-  }
-  boings.length = 0;
-  for (let i = 0; i < POINTS; i++) {
-    const boing = new Boing(envMap, Maf.randomElement(rainbow));
-    boing.globalScale = params.scale();
-    boing.material.roughness = params.roughness();
-    boing.material.metalness = params.metalness();
-    boings.push(boing);
-    group.add(boing.mesh);
-  }
-  randomize();
+  generate();
   randomize();
 });
 gui.addSlider("Scale", params.scale, 0.1, 2, 0.01, (scale) => {
@@ -99,10 +83,26 @@ const scene = new Scene();
 const group = new Group();
 scene.add(group);
 const boings = [];
-let POINTS = 50;
-let targets = pointsOnSphere(POINTS, 2).map((p, i) => {
-  return { id: i, point: p, color: new Color(Maf.randomElement(rainbow)) };
-});
+
+let POINTS = params.points();
+
+function generate() {
+  POINTS = params.points();
+  const seeds = pointsOnSphere(POINTS, 1);
+  for (const boing of boings) {
+    group.remove(boing.mesh);
+  }
+  boings.length = 0;
+  for (let i = 0; i < POINTS; i++) {
+    const boing = new Boing(envMap, Maf.randomElement(rainbow));
+    boing.globalScale = params.scale();
+    boing.material.roughness = params.roughness();
+    boing.material.metalness = params.metalness();
+    boings.push(boing);
+    boing.mesh.position.copy(seeds[i]);
+    group.add(boing.mesh);
+  }
+}
 
 const loader = new UltraHDRLoader();
 loader.setDataType(FloatType);
@@ -122,16 +122,7 @@ function loadEnvironment(resolution = "2k", type = "HalfFloatType") {
 }
 
 function init() {
-  for (let i = 0; i < POINTS; i++) {
-    const boing = new Boing(envMap, Maf.randomElement(rainbow));
-    boing.globalScale = params.scale();
-    boing.material.roughness = params.roughness();
-    boing.material.metalness = params.metalness();
-    boings.push(boing);
-    group.add(boing.mesh);
-  }
-  randomize();
-  randomize();
+  generate();
 }
 
 loadEnvironment();
@@ -155,26 +146,11 @@ scene.add(hemiLight);
 camera.position.set(0, 0, 1).multiplyScalar(10);
 camera.lookAt(0, 0, 0);
 
-let timeout;
 function randomize() {
-  if (timeout) {
-    clearTimeout(timeout);
-  }
-  targets.sort(() => 0.5 - Math.random());
   for (let i = 0; i < boings.length; i++) {
-    const target = targets[i];
-    boings[i].randomize(target.point);
-    const prevColor = targets.find((t) => t.id === i).color;
-    boings[i].material.color.set(prevColor);
+    boings[i].randomize();
   }
-  timeout = setTimeout(randomize, 2000);
 }
-
-const sphere = new Mesh(
-  new IcosahedronGeometry(2, 10),
-  new MeshStandardMaterial({ wireframe: true })
-);
-// scene.add(sphere);
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "KeyR") {
@@ -187,10 +163,9 @@ render(() => {
 
   const dt = clock.getDelta();
 
-  if (running) {
-    for (const boing of boings) {
-      boing.update(dt);
-    }
+  for (const boing of boings) {
+    boing.mesh.material.globalScale = params.scale();
+    boing.update(running ? dt : 0);
     // group.rotation.x += 0.5 * dt;
     // group.rotation.y += 0.45 * dt;
     // group.rotation.z += 0.55 * dt;
