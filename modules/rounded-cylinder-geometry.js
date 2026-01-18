@@ -1,10 +1,10 @@
 import { Path, LatheGeometry } from "three";
 
 function RoundedCylinderGeometry(
-  radius,
-  height,
-  bevelRadius,
-  bevelSegments,
+  radius = 1,
+  height = 1,
+  bevelRadius = 0.1,
+  bevelSegments = 3,
   radialSegments = 32,
   heightSegments = 1
 ) {
