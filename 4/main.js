@@ -14,11 +14,13 @@ import {
   Color,
   PCFShadowMap,
   Data3DTexture,
+  Vector2,
   LinearFilter,
   FloatType,
   RedFormat,
   Vector3,
   BoxGeometry,
+  Matrix4,
   RawShaderMaterial,
   BackSide,
   GLSL3,
@@ -38,8 +40,9 @@ import {
 // import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
 import { ImprovedNoise } from "third_party/ImprovedNoise.js";
-// import { RoundedBoxGeometry } from "third_party/three-rounded-box.js";
+import { RoundedBoxGeometry } from "third_party/three-rounded-box.js";
 import { UltraHDRLoader } from "third_party/UltraHDRLoader.js";
+import { sdTorus, sdIcosahedron } from "modules/raymarch.js";
 
 const rainbow = [
   "#ef4444",
@@ -132,18 +135,31 @@ function createData(size, time) {
   const perlin = new ImprovedNoise();
   const vector = new Vector3();
   const data = [];
+  const t = new Vector2(0.7, 0.25);
   const s = 2;
+  const rot = new Matrix4().makeRotationZ(time);
+  const e = 0.5 / size;
   for (let z = 0; z < size; z++) {
     data[z] = [];
     for (let y = 0; y < size; y++) {
       data[z][y] = [];
       for (let x = 0; x < size; x++) {
         data[z][y][x] = 0;
-        vector.set(x, y, z).divideScalar(size);
+        vector
+          .set(x, y, z)
+          .divideScalar(size)
+          .subScalar(0.5)
+          .multiplyScalar(2)
+          .applyMatrix4(rot);
+        // .multiplyScalar(10);
 
-        const d = perlin.noise(vector.x * s + time, vector.y * s, vector.z * s);
+        const d = sdTorus(vector, t);
+        data[z][y][x] = d < e ? 1 : 0;
 
-        data[z][y][x] = d > 0 ? 1 : 0;
+        // const d = sdIcosahedron(vector, 0.9, 50);
+        // data[z][y][x] = d < e ? 1 : 0;
+        // const d = perlin.noise(vector.x * s + time, vector.y * s, vector.z * s);
+        // data[z][y][x] = d > 0 ? 1 : 0;
       }
     }
   }
@@ -163,6 +179,7 @@ class Level {
       metalness: params.metalness(),
       envMap: envMap,
       envMapIntensity: 1.0,
+      flatShading: true,
     });
 
     const s = this.size - 0.001;
@@ -174,7 +191,7 @@ class Level {
     //   1,
     //   0.0025
     // );
-    // geometry.scale(0.95, 0.95, 0.95);
+    geometry.scale(0.95, 0.95, 0.95);
     const mesh = new InstancedMesh(geometry, material, this.cubes);
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.castShadow = true;
@@ -201,19 +218,27 @@ class Level {
   }
 
   sync(data) {
-    let i = 0;
     const dummy = new Object3D();
+    const valid = [];
     for (let z = 0; z < this.side; z++) {
       for (let y = 0; y < this.side; y++) {
         for (let x = 0; x < this.side; x++) {
           const value = data[z][y][x];
-          dummy.position.set(x, y, z).multiplyScalar(this.size);
-          dummy.scale.setScalar(value);
-          dummy.updateMatrix();
-          this.mesh.setMatrixAt(i++, dummy.matrix);
+          if (value > 0) {
+            valid.push({ x, y, z });
+          }
         }
       }
     }
+    let i = 0;
+    for (const p of valid) {
+      const { x, y, z } = p;
+      dummy.position.set(x, y, z).multiplyScalar(this.size);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      this.mesh.setMatrixAt(i++, dummy.matrix);
+    }
+    this.mesh.count = valid.length;
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 }
@@ -263,12 +288,13 @@ function pyramid(data, size) {
   return res;
 }
 
-const size = 64;
+const LEVELS = 7;
+const size = 2 ** (LEVELS - 1);
 const data = createData(size);
 const pyramidData = [data];
 let currentData = data;
 let currentSize = size;
-for (let level = 7; level >= 2; level--) {
+for (let level = LEVELS; level >= 2; level--) {
   currentData = pyramid(currentData, currentSize);
   currentSize /= 2;
   pyramidData.push(currentData);
@@ -276,13 +302,13 @@ for (let level = 7; level >= 2; level--) {
 
 const gradient = new GradientLinear(rainbow);
 const levels = [];
-for (let level = 7; level >= 1; level--) {
+for (let level = LEVELS; level >= 1; level--) {
   const levelObject = new Level(
     level,
     1 / 2 ** (level - 1),
     gradient.getAt(level / 8)
   );
-  levelObject.sync(pyramidData[7 - level]);
+  levelObject.sync(pyramidData[LEVELS - level]);
   group.add(levelObject.mesh);
   levels.push(levelObject);
 }
@@ -309,20 +335,20 @@ render(() => {
   const dt = clock.getDelta();
 
   if (running) {
-    time += dt / 10;
+    time += dt;
     const data = createData(size, time);
     const pyramidData = [data];
     let currentData = data;
     let currentSize = size;
-    for (let level = 7; level >= 2; level--) {
+    for (let level = LEVELS; level >= 2; level--) {
       currentData = pyramid(currentData, currentSize);
       currentSize /= 2;
       pyramidData.push(currentData);
     }
 
-    for (let level = 7; level >= 1; level--) {
-      const levelObject = levels[7 - level];
-      levelObject.sync(pyramidData[7 - level]);
+    for (let level = LEVELS; level >= 1; level--) {
+      const levelObject = levels[LEVELS - level];
+      levelObject.sync(pyramidData[LEVELS - level]);
     }
   }
 
