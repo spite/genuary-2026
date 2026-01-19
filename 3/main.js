@@ -23,6 +23,8 @@ import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
 
+const levels = 8;
+
 const rainbow = [
   "#ef4444",
   "#f97316",
@@ -51,11 +53,17 @@ const ocean = [
 
 const defaults = {
   seed: 1337,
-  points: 1,
-  range: [0, 0.25],
-  scale: 1,
-  roughness: 0.25,
-  metalness: 0.5,
+  levels: levels,
+  innerSize: 0.5,
+  outerSize: 0.5,
+  innerStart: 0,
+  outerStart: 0,
+  innerLength: 0.5,
+  outerLength: 0.5,
+  innerFrequency: 1,
+  outerFrequency: 2,
+  roughness: 0.1,
+  metalness: 0.7,
   offsetAngle: 0,
   offsetDistance: 0,
 };
@@ -66,9 +74,19 @@ const gui = new GUI(
   "3. Fibonacci forever",
   document.querySelector("#gui-container")
 );
-gui.addSlider("Points", params.points, 1, 250, 1);
-gui.addRangeSlider("Range", params.range, 0, 1, 0.01);
-gui.addSlider("Scale", params.scale, 0.1, 2, 0.01);
+gui.addSlider("Levels", params.levels, 1, levels, 1, (levels) => {
+  for (const strand of strandObjects) {
+    strand.mesh.visible = strand.level <= levels;
+  }
+});
+gui.addSlider("Inner size", params.innerSize, 0.1, 2, 0.01);
+gui.addSlider("Outer size", params.outerSize, 0.1, 2, 0.01);
+gui.addSlider("Inner start", params.innerStart, 0, 0.5, 0.01);
+gui.addSlider("Outer start", params.outerStart, 0, 0.5, 0.01);
+gui.addSlider("Inner length", params.innerLength, 0.01, 0.5, 0.01);
+gui.addSlider("Outer length", params.outerLength, 0.01, 0.5, 0.01);
+gui.addSlider("Inner frequency", params.innerFrequency, 0, 5, 0.01);
+gui.addSlider("Outer frequency", params.outerFrequency, 0, 5, 0.01);
 gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
 gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
 gui.addSlider("Offset Angle", params.offsetAngle, 0, Math.PI * 2, 0.01);
@@ -133,54 +151,57 @@ uniform float offsetDistance;
 uniform float frequency;
 uniform float offset;
 
-const int INTEGRATION_STEPS = 25; 
+const int INTEGRATION_STEPS = 12;
 const float TAU = 6.28318530718;
 
 vec3 getPoint(float t) {
-  float r = 1.;
   float a = t * TAU + offset;
-  vec3 basePos = vec3(r * cos(a), r * sin(a), 0.);
+  float ca = cos(a);
+  float sa = sin(a);
+  vec3 basePos = vec3(ca, sa, 0.);
   
-  vec3 tangent = normalize(vec3(-sin(a), cos(a), 0.));
-  vec3 binormal = vec3(0., 0., 1.); // Z-up for circle in XY plane
-  vec3 normal = cross(binormal, tangent);
+  vec3 tangent = vec3(-sa, ca, 0.);
+  vec3 n = vec3(ca, sa, 0.);  // normal points outward from circle center
   
   float b = offsetAngle + a * frequency;
-  vec3 offset = offsetDistance * (cos(b) * normal + sin(b) * binormal);
+  vec3 off = offsetDistance * (cos(b) * n + sin(b) * vec3(0., 0., 1.));
   
-  return basePos + offset;
+  return basePos + off;
 }
 
 vec3 getTangent(float t) {
   float e = 0.0001;
-  vec3 p1 = getPoint(t - e);
-  vec3 p2 = getPoint(t + e);
-  return normalize(p2 - p1);
+  return normalize(getPoint(t + e) - getPoint(t - e));
 }
 
-mat3 axisAngleMatrix(vec3 axis, float angle) {
+// mat3 axisAngleMatrix(vec3 axis, float angle) {
+//     float c = cos(angle);
+//     float s = sin(angle);
+//     float t = 1.0 - c;
+    
+//     return mat3(
+//         t * axis.x * axis.x + c,           t * axis.x * axis.y - axis.z * s,  t * axis.x * axis.z + axis.y * s,
+//         t * axis.x * axis.y + axis.z * s,  t * axis.y * axis.y + c,           t * axis.y * axis.z - axis.x * s,
+//         t * axis.x * axis.z - axis.y * s,  t * axis.y * axis.z + axis.x * s,  t * axis.z * axis.z + c
+//     );
+// }
+
+vec3 rotateAround(vec3 v, vec3 axis, float angle) {
     float c = cos(angle);
     float s = sin(angle);
-    float t = 1.0 - c;
-    
-    return mat3(
-        t * axis.x * axis.x + c,           t * axis.x * axis.y - axis.z * s,  t * axis.x * axis.z + axis.y * s,
-        t * axis.x * axis.y + axis.z * s,  t * axis.y * axis.y + c,           t * axis.y * axis.z - axis.x * s,
-        t * axis.x * axis.z - axis.y * s,  t * axis.y * axis.z + axis.x * s,  t * axis.z * axis.z + c
-    );
+    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
 }
 
-vec3 deformPosition(vec3 pos) {
+vec3 deformWithFrame(vec3 pos, out vec3 outN, out vec3 outB) {
     float myT = (pos.z / meshLength) + 0.5;
     myT = (end - start) * myT + start;
-    myT = clamp(myT, 0.0, 1.0);
+    // myT = clamp(myT, 0.0, 1.0);
+    myT = mod(myT, 1.0);
 
-    vec3 currentPos = getPoint(0.0);
     vec3 T = getTangent(0.0);
     
-    vec3 up = vec3(0.0, 1.0, 0.0);
-    
-    if (abs(dot(T, up)) > 0.999) up = vec3(0.0, 0.0, 1.0);
+    vec3 up = vec3(0.0, 0.0, 1.0);
+    if (abs(dot(T, up)) > 0.999) up = vec3(0.0, 1.0, 0.0);
     
     vec3 B = normalize(cross(T, up));
     vec3 N = normalize(cross(B, T));
@@ -190,59 +211,35 @@ vec3 deformPosition(vec3 pos) {
         
         for (int i = 1; i <= INTEGRATION_STEPS; i++) {
             float t_next = float(i) * dt;
-            
             vec3 T_next = getTangent(t_next);
             
             vec3 axis = cross(T, T_next);
             float len = length(axis);
             
             if (len > 0.00001) {
-                axis = normalize(axis);
-                float dotVal = clamp(dot(T, T_next), -1.0, 1.0);
-                float angle = acos(dotVal);
+                axis /= len;  // normalize
+                float angle = asin(clamp(len, -1.0, 1.0));  // small angle: asin(len) ≈ angle
                 
-                mat3 rotMat = axisAngleMatrix(axis, angle);
-                
-                N = rotMat * N;
-                B = rotMat * B;
+                N = rotateAround(N, axis, angle);
+                B = rotateAround(B, axis, angle);
             }
 
-            N = N - dot(N, T_next) * T_next;
-            N = normalize(N);            
+            N = normalize(N - dot(N, T_next) * T_next);
             B = cross(T_next, N);
-            
             T = T_next;
         }
-        
-        currentPos = getPoint(myT);
     }
 
-    return currentPos + (N * pos.x * scale) + (B * pos.y * scale);
+    outN = N;
+    outB = B;
+    return getPoint(myT) + (N * pos.x * scale) + (B * pos.y * scale);
 }
 
 void calculate(in vec3 position, out vec3 newPos, out vec3 newNormal) {
-    newPos = deformPosition(position);
-    
-    float e = 0.001;
-    
+    vec3 N, B;
+    newPos = deformWithFrame(position, N, B);
     vec3 origNormal = normalize(normal);
-    vec3 tangent1;
-    if (abs(origNormal.x) < 0.9) {
-        tangent1 = normalize(cross(origNormal, vec3(1.0, 0.0, 0.0)));
-    } else {
-        tangent1 = normalize(cross(origNormal, vec3(0.0, 1.0, 0.0)));
-    }
-    vec3 tangent2 = normalize(cross(origNormal, tangent1));
-    
-    vec3 p1 = deformPosition(position + tangent1 * e);
-    vec3 p2 = deformPosition(position - tangent1 * e);
-    vec3 p3 = deformPosition(position + tangent2 * e);
-    vec3 p4 = deformPosition(position - tangent2 * e);
-    
-    vec3 deformedTangent1 = (p1 - p2) / (2.0 * e);
-    vec3 deformedTangent2 = (p3 - p4) / (2.0 * e);
-    
-    newNormal = normalMatrix * normalize(cross(deformedTangent1, deformedTangent2));
+    newNormal = normalMatrix * normalize(origNormal.x * N + origNormal.y * B);
 }
 
 void main() {
@@ -293,14 +290,20 @@ function generateStrand(
   material.envMap = envMap;
   material.syncLights(scene);
   material.syncRenderer(renderer);
-  // const geometry = new RoundedCylinderGeometry(0.1, 100, 0.1, 5, 32, 100);
-  // material.uniforms.meshLength.value = 100;
-  const geometry = new IcosahedronGeometry(0.1, res);
-  material.uniforms.meshLength.value = 0.2;
+  // const geometry = new IcosahedronGeometry(
+  //   0.1,
+  //   Math.round(Maf.map(0, 1, 1, 20, res))
+  // );
+  // material.uniforms.meshLength.value = 0.2;
   // geometry.scale(1, 1, 1);
-  // const geometry = new TorusGeometry(0.1, 0.05, 64, 200);
-  // geometry.scale(1.5, 1, 1);
-  // material.uniforms.meshLength.value = 0.3;
+  const geometry = new TorusGeometry(
+    0.1,
+    0.05,
+    64,
+    Math.round(Maf.map(0, 1, 100, 300, res))
+  );
+  geometry.scale(1.5, 1, 1);
+  material.uniforms.meshLength.value = 0.3;
   geometry.rotateX(Math.PI / 2);
 
   const mesh = new Mesh(geometry, material);
@@ -318,44 +321,88 @@ const strandObjects = [];
 
 function init() {
   const gradient = new GradientLinear(rainbow);
-  const levels = 8;
-  const parts = 1;
   let d = 0;
   for (let i = 1; i < levels; i++) {
     const strands = fibonacci(i);
     const size = Maf.map(1, levels, 0.5, 0.5, i);
     const startAngle = Maf.PI / strands;
     const frequency = Maf.map(1, levels, 1, 2, i);
-    const res = Math.round(Maf.map(1, levels, 1, 20, i));
-    const offset = Maf.randomInRange(0, 1);
+    const res = Maf.map(1, levels, 0, 1, i);
     for (let j = 0; j < strands; j++) {
-      for (let k = 0; k < parts; k++) {
-        const start = Maf.map(0, parts, 0, 1, k);
-        const strand = generateStrand(
-          d,
-          startAngle + Maf.map(0, strands, 0, Maf.TAU, j),
-          size,
-          frequency,
-          0, //start,
-          0.5, //start + 1 / (2 * parts),
-          gradient.getAt(Maf.map(1, levels - 1, 0, 1, i)),
-          Maf.randomInRange(0, Maf.TAU),
-          res
-        );
-        strandObjects.push({ strand });
-      }
+      const strand = generateStrand(
+        d,
+        startAngle + Maf.map(0, strands, 0, Maf.TAU, j),
+        size,
+        frequency,
+        0,
+        0.1,
+        gradient.getAt(Maf.map(1, levels - 1, 0, 1, i)),
+        Maf.randomInRange(0, Maf.TAU),
+        res
+      );
+      strandObjects.push({ mesh: strand, level: i, strand: j });
     }
     d += size / 5;
   }
 }
 
-// loadEnvironment();
 init();
+
+function updateParams() {
+  for (const strand of strandObjects) {
+    const scale = Maf.map(
+      1,
+      levels,
+      params.innerSize(),
+      params.outerSize(),
+      strand.level
+    );
+    strand.mesh.material.uniforms.scale.value = scale;
+
+    const start = Maf.map(
+      1,
+      levels,
+      params.innerStart(),
+      params.outerStart(),
+      strand.level
+    );
+    strand.mesh.material.uniforms.start.value = start;
+
+    const length = Maf.map(
+      1,
+      levels,
+      params.innerLength(),
+      params.outerLength(),
+      strand.level
+    );
+    strand.mesh.material.uniforms.end.value = start + length;
+
+    const frequency = Maf.map(
+      1,
+      levels,
+      params.innerFrequency(),
+      params.outerFrequency(),
+      strand.level
+    );
+    strand.mesh.material.uniforms.frequency.value = frequency;
+  }
+}
 
 camera.position.set(0, 0, 1).multiplyScalar(10);
 camera.lookAt(0, 0, 0);
 
-function randomize() {}
+function randomize() {
+  params.innerSize.set(Maf.randomInRange(0.1, 2));
+  params.outerSize.set(Maf.randomInRange(0.1, 2));
+  params.innerStart.set(Maf.randomInRange(0, 0.5));
+  params.outerStart.set(Maf.randomInRange(0, 0.5));
+  params.innerLength.set(Maf.randomInRange(0.1, 0.5));
+  params.outerLength.set(Maf.randomInRange(0.1, 0.5));
+  params.innerFrequency.set(Math.round(Maf.randomInRange(0, 5)));
+  params.outerFrequency.set(Math.round(Maf.randomInRange(0, 5)));
+  params.offsetAngle.set(Maf.randomInRange(0, Maf.TAU));
+  params.offsetDistance.set(Maf.randomInRange(0, 1));
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "KeyR") {
@@ -367,9 +414,10 @@ render(() => {
   controls.update();
 
   const dt = clock.getDelta();
+  updateParams();
 
   for (const strand of strandObjects) {
-    const material = strand.strand.material;
+    const material = strand.mesh.material;
     if (running) {
       material.uniforms.offset.value += dt;
     }
