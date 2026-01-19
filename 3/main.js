@@ -89,12 +89,12 @@ gui.addSlider("Inner frequency", params.innerFrequency, 0, 5, 0.01);
 gui.addSlider("Outer frequency", params.outerFrequency, 0, 5, 0.01);
 gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
 gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
-gui.addSlider("Offset Angle", params.offsetAngle, 0, Math.PI * 2, 0.01);
-gui.addSlider("Offset Distance", params.offsetDistance, 0, 2, 0.01);
+// gui.addSlider("Offset Angle", params.offsetAngle, 0, Math.PI * 2, 0.01);
+// gui.addSlider("Offset Distance", params.offsetDistance, 0, 2, 0.01);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
-  "<p>Press R to shuffle the objects.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>"
+  "<p>Press <b>R</b> to randomize the parameters.</p><p>Press <b>Space</b> to toggle the animation.</p><p>Press <b>Tab</b> to toggle this GUI.</p>"
 );
 gui.show();
 
@@ -388,7 +388,7 @@ function updateParams() {
   }
 }
 
-camera.position.set(0, 0, 1).multiplyScalar(10);
+camera.position.set(0.5, -0.5, 1).multiplyScalar(5);
 camera.lookAt(0, 0, 0);
 
 function randomize() {
