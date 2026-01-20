@@ -112,8 +112,8 @@ gui.addSelect(
   params.geometry
 );
 gui.addSlider("Noise Scale", params.noiseScale, 1, 4, 0.01);
-gui.addSlider("Torus Radius 1", params.torusRadius1, 0.1, 1, 0.01);
-gui.addSlider("Torus Radius 2", params.torusRadius2, 0.05, 0.5, 0.01);
+gui.addSlider("Torus Radius 1", params.torusRadius1, 0.1, 2, 0.01);
+gui.addSlider("Torus Radius 2", params.torusRadius2, 0.05, 2, 0.01);
 gui.addRangeSlider("Range", params.range, 0, LEVELS, 1);
 gui.addSlider("Gap", params.gap, 0, 0.5, 0.01);
 gui.addSlider("Speed", params.speed, 0, 2, 0.01);
@@ -307,6 +307,7 @@ class Level {
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
 
     this.mesh = mesh;
     mesh.position.set(
@@ -357,6 +358,7 @@ class Level {
   }
 
   sync(data) {
+    if (!this.mesh.visible) return;
     const dummy = new Object3D();
     const valid = [];
     for (let z = 0; z < this.side; z++) {
@@ -373,7 +375,6 @@ class Level {
     for (const p of valid) {
       const { x, y, z } = p;
       dummy.position.set(x, y, z).multiplyScalar(this.size);
-      // dummy.scale.set(this.scale, this.scale, this.scale);
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i++, dummy.matrix);
@@ -474,7 +475,9 @@ render(() => {
   const dt = clock.getDelta();
 
   if (running || invalidateMap) {
-    time += dt * params.speed();
+    if (running) {
+      time += dt * params.speed();
+    }
     const data = createData(size, time);
     const pyramidData = [data];
     let currentData = data;
