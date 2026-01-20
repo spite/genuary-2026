@@ -10,28 +10,19 @@ import {
 import GUI from "gui";
 import {
   Scene,
-  Mesh,
   Color,
   PCFShadowMap,
-  Data3DTexture,
   Vector2,
-  LinearFilter,
   FloatType,
-  RedFormat,
   Vector3,
   BoxGeometry,
   Matrix4,
-  RawShaderMaterial,
-  BackSide,
-  GLSL3,
   DynamicDrawUsage,
   Object3D,
   EquirectangularReflectionMapping,
-  NearestFilter,
   Group,
   HemisphereLight,
   IcosahedronGeometry,
-  TorusGeometry,
   MeshStandardMaterial,
   InstancedMesh,
   DirectionalLight,
@@ -41,7 +32,7 @@ import { ImprovedNoise } from "third_party/ImprovedNoise.js";
 import { RoundedBoxGeometry } from "third_party/three-rounded-box.js";
 import { UltraHDRLoader } from "third_party/UltraHDRLoader.js";
 import { sdTorus, sdIcosahedron } from "modules/raymarch.js";
-import { effect } from "reactive";
+import { effect, computed } from "reactive";
 // import { TrefoilSDF } from "modules/TrefoilSDF.js";
 
 const LEVELS = 7;
@@ -84,7 +75,7 @@ const defaults = {
   geometry: "box",
   range: [0, LEVELS],
   gap: 0.02,
-  speed: 1,
+  speed: 0.25,
   roughness: 0.5,
   metalness: 0.2,
 };
@@ -111,9 +102,33 @@ gui.addSelect(
   geometries.map((s) => [s.id, s.name]),
   params.geometry
 );
-gui.addSlider("Noise Scale", params.noiseScale, 1, 4, 0.01);
-gui.addSlider("Torus Radius 1", params.torusRadius1, 0.1, 2, 0.01);
-gui.addSlider("Torus Radius 2", params.torusRadius2, 0.05, 2, 0.01);
+gui.addSlider(
+  "Noise Scale",
+  params.noiseScale,
+  1,
+  4,
+  0.01,
+  undefined,
+  computed(() => params.shape() !== "perlin")
+);
+gui.addSlider(
+  "Torus Radius 1",
+  params.torusRadius1,
+  0.1,
+  2,
+  0.01,
+  undefined,
+  computed(() => params.shape() !== "torus")
+);
+gui.addSlider(
+  "Torus Radius 2",
+  params.torusRadius2,
+  0.05,
+  2,
+  0.01,
+  undefined,
+  computed(() => params.shape() !== "torus")
+);
 gui.addRangeSlider("Range", params.range, 0, LEVELS, 1);
 gui.addSlider("Gap", params.gap, 0, 0.5, 0.01);
 gui.addSlider("Speed", params.speed, 0, 2, 0.01);
@@ -121,10 +136,29 @@ gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
 gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
 gui.addButton("Random", randomize);
 gui.addSeparator();
+gui.addLabel("Count of filled instances per level");
 gui.addText(
-  "<p>Press R to shuffle the objects.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>"
+  `<ul>${Array.from(
+    { length: LEVELS },
+    (_, i) => `<li class="bar"><span></span></li>`
+  ).join("")}</ul>`
+);
+gui.addSeparator();
+gui.addText(
+  "<p>Press R to randomize the paramters.</p><p>Press Space to toggle the animation.</p><p>Press Tab to toggle this GUI.</p>"
 );
 gui.show();
+
+const lis = document.querySelectorAll("#gui-container li.bar").forEach((li) => {
+  li.style.listStyle = "none";
+  li.style.heigth = `4px`;
+});
+
+const bars = document.querySelectorAll("#gui-container li.bar span");
+bars.forEach((bar, i) => {
+  bar.style.display = "block";
+  bar.style.height = "4px";
+});
 
 const color = palette[2];
 renderer.setClearColor(new Color(color));
@@ -290,6 +324,8 @@ class Level {
     this.size = size;
     this.side = 2 ** (level - 1);
     this.cubes = this.side ** 3;
+    this.count = 0;
+    this.color = color;
 
     const material = new MeshStandardMaterial({
       color,
@@ -381,6 +417,7 @@ class Level {
     }
     this.mesh.count = valid.length;
     this.mesh.instanceMatrix.needsUpdate = true;
+    this.count = valid.length;
   }
 }
 
@@ -460,7 +497,14 @@ init();
 camera.position.set(0.56, 0.71, -0.41).multiplyScalar(3);
 camera.lookAt(0, 0, 0);
 
-function randomize() {}
+function randomize() {
+  params.gap.set(Maf.randomInRange(0, 0.2));
+  params.noiseScale.set(Maf.randomInRange(1, 4));
+  params.torusRadius1.set(Maf.randomInRange(0.1, 1));
+  params.torusRadius2.set(Maf.randomInRange(0.05, 0.5));
+  params.shape.set(Maf.randomElement(shapes).id);
+  // params.geometry.set(Maf.randomElement(geometries).id);
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "KeyR") {
@@ -504,6 +548,11 @@ render(() => {
     // );
     level.mesh.material.roughness = params.roughness();
     level.mesh.material.metalness = params.metalness();
+
+    bars[level.level - 1].style.width = `${(level.count * 100) / level.cubes}%`;
+    bars[
+      level.level - 1
+    ].style.backgroundColor = `#${level.color.getHexString()}`;
   }
 
   renderer.render(scene, camera);
