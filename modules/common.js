@@ -11,6 +11,8 @@ import { signal } from "reactive";
 
 console.log("Common module loaded");
 
+Math.seedrandom = function (seed) {};
+
 // UI stuff
 
 function fromDefaults(defaults) {
