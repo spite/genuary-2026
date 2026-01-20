@@ -43,6 +43,9 @@ import { ImprovedNoise } from "third_party/ImprovedNoise.js";
 import { RoundedBoxGeometry } from "third_party/three-rounded-box.js";
 import { UltraHDRLoader } from "third_party/UltraHDRLoader.js";
 import { sdTorus, sdIcosahedron } from "modules/raymarch.js";
+import { TrefoilSDF } from "modules/TrefoilSDF.js";
+
+const LEVELS = 7;
 
 const rainbow = [
   "#ef4444",
@@ -59,25 +62,42 @@ const rainbow = [
 
 const defaults = {
   seed: 1337,
-  points: 1,
-  range: [0, 0.25],
-  scale: 1,
+  shape: "perlin",
+  geometry: "box",
+  range: [0, LEVELS],
+  gap: 0.02,
+  speed: 1,
   roughness: 0.2,
   metalness: 0.5,
-  offsetAngle: 0,
-  offsetDistance: 0,
 };
 
 const params = fromDefaults(defaults);
+const shapes = [
+  { id: "perlin", name: "Perlin noise" },
+  { id: "torus", name: "Torus" },
+];
+const geometries = [
+  { id: "box", name: "Box" },
+  { id: "rounded-box", name: "Rounded Box" },
+  { id: "sphere", name: "Sphere" },
+];
 
 const gui = new GUI("4. Lowres", document.querySelector("#gui-container"));
-gui.addSlider("Points", params.points, 1, 250, 1);
-gui.addRangeSlider("Range", params.range, 0, 1, 0.01);
-gui.addSlider("Scale", params.scale, 0.1, 2, 0.01);
+gui.addSelect(
+  "Shape",
+  shapes.map((s) => [s.id, s.name]),
+  params.shape
+);
+gui.addSelect(
+  "Geometry",
+  geometries.map((s) => [s.id, s.name]),
+  params.geometry
+);
+gui.addRangeSlider("Range", params.range, 0, LEVELS, 1);
+gui.addSlider("Gap", params.gap, 0, 0.5, 0.01);
+gui.addSlider("Speed", params.speed, 0, 2, 0.01);
 gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
 gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
-gui.addSlider("Offset Angle", params.offsetAngle, 0, Math.PI * 2, 0.01);
-gui.addSlider("Offset Distance", params.offsetDistance, 0, 2, 0.01);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
@@ -98,10 +118,10 @@ scene.add(group);
 const light = new DirectionalLight(0xffffff, 3);
 light.position.set(3, 6, 3);
 light.castShadow = true;
-light.shadow.camera.top = 3;
-light.shadow.camera.bottom = -3;
-light.shadow.camera.right = 3;
-light.shadow.camera.left = -3;
+light.shadow.camera.top = 1;
+light.shadow.camera.bottom = -1;
+light.shadow.camera.right = 1;
+light.shadow.camera.left = -1;
 light.shadow.mapSize.set(4096, 4096);
 scene.add(light);
 
@@ -129,6 +149,54 @@ function loadEnvironment(resolution = "2k", type = "HalfFloatType") {
 }
 
 const envMap = await loadEnvironment();
+const trefoil = new TrefoilSDF();
+
+function blend(v) {
+  const k = 9.5;
+  const sum = v.reduce((ac, v) => ac + Math.exp(-k * v), 0);
+  return -Math.log(sum) / k;
+}
+
+function sdSphere(p, r) {
+  return p.length() - r;
+}
+
+const spheres = [];
+const tmp = new Vector3();
+
+function generateSpheres() {
+  spheres.length = 0;
+  for (let i = 0; i < 10; i++) {
+    const s = 0.7;
+    const radius = Maf.randomInRange(0.1, 0.3);
+    const center = new Vector3(
+      Maf.randomInRange(-s, s),
+      Maf.randomInRange(-s, s),
+      Maf.randomInRange(-s, s)
+    );
+    spheres.push({ center, radius });
+  }
+}
+generateSpheres();
+
+function generateBlob(p, offset) {
+  const res = [];
+  for (const sphere of spheres) {
+    const c = sphere.center;
+    tmp.copy(p).sub(c);
+    res.push(sdSphere(tmp, sphere.radius + offset));
+  }
+
+  const d = blend(res);
+  return d;
+}
+
+function blobMap(offset) {
+  return (p) => {
+    return generateBlob(p, offset);
+  };
+}
+const fn = blobMap(0);
 
 function createData(size, time) {
   let i = 0;
@@ -138,6 +206,8 @@ function createData(size, time) {
   const t = new Vector2(0.7, 0.25);
   const s = 2;
   const rot = new Matrix4().makeRotationZ(time);
+  const rot2 = new Matrix4().makeRotationX(time * 0.8);
+  rot.multiply(rot2);
   const e = 0.5 / size;
   for (let z = 0; z < size; z++) {
     data[z] = [];
@@ -151,15 +221,31 @@ function createData(size, time) {
           .subScalar(0.5)
           .multiplyScalar(2)
           .applyMatrix4(rot);
-        // .multiplyScalar(10);
 
-        const d = sdTorus(vector, t);
-        data[z][y][x] = d < e ? 1 : 0;
+        switch (params.shape()) {
+          case "perlin": {
+            const d = perlin.noise(
+              vector.x * s + time,
+              vector.y * s,
+              vector.z * s
+            );
+            data[z][y][x] = d > 0 ? 1 : 0;
+            break;
+          }
+          case "torus": {
+            const d = sdTorus(vector, t);
+            data[z][y][x] = d < e ? 1 : 0;
+            break;
+          }
+        }
+        // const d = fn(vector);
+        // data[z][y][x] = d < e ? 1 : 0;
+
+        // const d = trefoil.getDistance(vector.clone().multiplyScalar(3.5)) / 3.5;
+        // data[z][y][x] = d < e ? 1 : 0;
 
         // const d = sdIcosahedron(vector, 0.9, 50);
         // data[z][y][x] = d < e ? 1 : 0;
-        // const d = perlin.noise(vector.x * s + time, vector.y * s, vector.z * s);
-        // data[z][y][x] = d > 0 ? 1 : 0;
       }
     }
   }
@@ -182,16 +268,9 @@ class Level {
       flatShading: true,
     });
 
-    const s = this.size - 0.001;
-    const geometry = new BoxGeometry(s, s, s);
-    // const geometry = new RoundedBoxGeometry(
-    //   this.size,
-    //   this.size,
-    //   this.size,
-    //   1,
-    //   0.0025
-    // );
-    geometry.scale(0.95, 0.95, 0.95);
+    this.scale = 1;
+
+    const geometry = new BoxGeometry(this.size, this.size, this.size);
     const mesh = new InstancedMesh(geometry, material, this.cubes);
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     mesh.castShadow = true;
@@ -217,6 +296,34 @@ class Level {
     }
   }
 
+  set gap(value) {
+    const minSize = 1 / 2 ** (LEVELS - 1);
+    this.scale = Math.max(0, 1 - (value * minSize) / this.size);
+    const s = this.size * this.scale;
+    let geometry;
+    switch (params.geometry()) {
+      case "box": {
+        geometry = new BoxGeometry(s, s, s);
+        this.mesh.material.flatShading = true;
+        break;
+      }
+      case "rounded-box": {
+        geometry = new RoundedBoxGeometry(s, s, s, 1, 0.0025);
+        this.mesh.material.flatShading = true;
+        break;
+      }
+      case "sphere": {
+        geometry = new IcosahedronGeometry(s / 2, LEVELS + 1 - this.level);
+        this.mesh.material.flatShading = false;
+        break;
+      }
+    }
+
+    this.mesh.material.needsUpdate = true;
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = geometry;
+  }
+
   sync(data) {
     const dummy = new Object3D();
     const valid = [];
@@ -234,6 +341,7 @@ class Level {
     for (const p of valid) {
       const { x, y, z } = p;
       dummy.position.set(x, y, z).multiplyScalar(this.size);
+      // dummy.scale.set(this.scale, this.scale, this.scale);
       dummy.scale.setScalar(1);
       dummy.updateMatrix();
       this.mesh.setMatrixAt(i++, dummy.matrix);
@@ -288,7 +396,6 @@ function pyramid(data, size) {
   return res;
 }
 
-const LEVELS = 7;
 const size = 2 ** (LEVELS - 1);
 const data = createData(size);
 const pyramidData = [data];
@@ -317,7 +424,7 @@ function init() {}
 
 init();
 
-camera.position.set(0, 0, 1).multiplyScalar(10);
+camera.position.set(1, 1, 1).multiplyScalar(3);
 camera.lookAt(0, 0, 0);
 
 function randomize() {}
@@ -335,7 +442,7 @@ render(() => {
   const dt = clock.getDelta();
 
   if (running) {
-    time += dt;
+    time += dt * params.speed();
     const data = createData(size, time);
     const pyramidData = [data];
     let currentData = data;
@@ -350,6 +457,12 @@ render(() => {
       const levelObject = levels[LEVELS - level];
       levelObject.sync(pyramidData[LEVELS - level]);
     }
+  }
+
+  for (const level of levels) {
+    level.mesh.visible =
+      level.level <= params.range()[1] && level.level >= params.range()[0];
+    level.gap = params.gap();
   }
 
   renderer.render(scene, camera);
