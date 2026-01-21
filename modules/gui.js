@@ -112,7 +112,7 @@ class GUI {
     return this;
   }
 
-  addSelect(label, options, signal, onChange = () => {}, disabled) {
+  addSelect(label, signal, options, onChange = () => {}, disabled) {
     const row = this.createRow(label, disabled, () => {
       const opt = Maf.randomElement(options);
       if (Array.isArray(opt)) {
