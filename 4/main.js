@@ -511,6 +511,9 @@ window.addEventListener("keydown", (e) => {
     randomize();
   }
 });
+document.querySelector("#randomize-button")?.addEventListener("click", () => {
+  randomize();
+});
 
 let time = performance.now() / 1000;
 render(() => {
