@@ -15,21 +15,15 @@ import {
   Mesh,
   Color,
   GLSL3,
-  Vector3,
-  TorusKnotGeometry,
   Vector2,
   Group,
   HemisphereLight,
-  TextureLoader,
   IcosahedronGeometry,
   RawShaderMaterial,
   RepeatWrapping,
-  TorusGeometry,
   DirectionalLight,
 } from "three";
 import { Material, loadEnvMap } from "modules/material.js";
-import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
-import { GradientLinear } from "modules/gradient.js";
 import { ShaderTexture } from "modules/ShaderTexture.js";
 import { shader as heightMapToNormal } from "shaders/heightmap-to-normal.js";
 import { shader as triplanar } from "shaders/triplanar.js";
@@ -37,7 +31,6 @@ import { shader as raymarch } from "shaders/raymarch.js";
 import { shader as sdfs } from "shaders/sdfs.js";
 import { shader as easings } from "shaders/easings.js";
 import { tweened, effect, effectRAF } from "reactive";
-// import { shader as perlin } from "shaders/perlinSimplex3D.js";
 import { shader as perlin } from "shaders/perlinClassic3D.js";
 import { Easings } from "easings";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
