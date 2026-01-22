@@ -14,7 +14,7 @@ function precision(a) {
 }
 
 function formatFloat(v, step) {
-  return parseFloat(v).toFixed(precision(step));
+  return parseFloat(parseFloat(v).toFixed(precision(step)));
 }
 
 function composeRangeValue(min, max, step) {
@@ -120,6 +120,7 @@ class GUI {
       } else {
         signal.set(opt);
       }
+      onChange(signal());
     });
     const select = document.createElement("select");
     select.className = "gui-select";
@@ -178,6 +179,7 @@ class GUI {
   addSlider(label, signal, min, max, step, onChange = () => {}, disabled) {
     const row = this.createRow(label, disabled, () => {
       signal.set(formatFloat(Maf.randomInRange(min, max), step));
+      onChange(signal());
     });
 
     const wrapper = document.createElement("div");
@@ -217,6 +219,7 @@ class GUI {
       const a = parseFloat(Maf.randomInRange(min, max), step);
       const b = parseFloat(Maf.randomInRange(a, max), step);
       signal.set([a, b]);
+      onChange(signal());
     });
 
     const wrapper = document.createElement("div");
