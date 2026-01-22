@@ -39,6 +39,7 @@ in vec3 position;
 in vec3 normal;
 in vec2 uv;
 
+out vec3 vPosition;
 out vec3 vViewPosition;
 out vec3 vWorldPosition;
 out vec3 vNormal;
@@ -46,6 +47,7 @@ out vec2 vUv;
 
 void main() {
     vUv = uv;
+    vPosition = position;
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vWorldPosition = worldPos.xyz;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
@@ -111,6 +113,9 @@ uniform float cubeUV_maxMip;
 uniform float cubeUV_texelWidth;
 uniform float cubeUV_texelHeight;
 
+uniform mat3 normalMatrix;
+
+in vec3 vPosition;
 in vec3 vViewPosition;
 in vec3 vWorldPosition;
 in vec3 vNormal;
