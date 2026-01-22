@@ -5,6 +5,7 @@ import {
   PMREMGenerator,
   DirectionalLight,
   AmbientLight,
+  Vector2,
   HemisphereLight,
   Color,
   GLSL3,
@@ -68,18 +69,30 @@ struct DirectionalLight { vec3 direction; vec3 color; };
 struct HemisphereLight { vec3 direction; vec3 skyColor; vec3 groundColor; };
 
 uniform mat4 viewMatrix;
-uniform bool hasMap;
-uniform bool hasNormalMap;
 uniform bool hasEnvMap;
 
 uniform vec3 color; 
-uniform sampler2D map;
-uniform float roughness;
-uniform float metalness;
-uniform float toneMappingExposure; // Added exposure uniform
 
+uniform bool hasMap;
+uniform sampler2D map;
+uniform vec2 mapRepeat;
+
+uniform bool hasRoughnessMap;
+uniform float roughness;
+uniform sampler2D roughnessMap;
+uniform vec2 roughnessMapRepeat;
+
+uniform bool hasMetalnessMap;
+uniform float metalness;
+uniform sampler2D metalnessMap;
+uniform vec2 metalnessMapRepeat;
+
+uniform bool hasNormalMap;
 uniform sampler2D normalMap;
 uniform vec2 normalScale;
+uniform vec2 normalRepeat;
+
+uniform float toneMappingExposure; // Added exposure uniform
 
 #define MAX_DIR_LIGHTS ${MAX_DIR_LIGHTS}
 #define MAX_HEMI_LIGHTS ${MAX_HEMI_LIGHTS}
@@ -303,20 +316,8 @@ void calculateLight(vec3 L, vec3 lightColor, vec3 geometryNormal, vec3 viewDir, 
     }
 }
 
-void main() {
-    vec4 diffuseColor = vec4(color, 1.0);
-    if (hasMap) {
-        vec4 texColor = texture(map, vUv);
-        texColor = pow(texColor, vec4(2.2)); 
-        diffuseColor *= texColor;
-    }
-
-    mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
-    vec3 worldNormal = normalize(viewMatrixInverse * vNormal);
-    if (hasNormalMap) {
-        worldNormal = perturbNormal2Arb(vWorldPosition, worldNormal, vUv, normalMap, normalScale);
-    }
-
+vec3 shade(in vec3 worldPosition, in vec3 worldNormal, in vec2 uv, in vec4 diffuseColor, in float roughness, in float metalness) {
+   
     float metalnessFactor = metalness;
     float roughnessFactor = max(roughness, 0.0525);
     float alpha = roughnessFactor * roughnessFactor;
@@ -326,7 +327,7 @@ void main() {
     vec3 diffuseReflectance = diffuseColor.rgb * (1.0 - metalnessFactor);
 
     vec3 geometryNormal = worldNormal; 
-    vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+    vec3 viewDir = normalize(cameraPosition - worldPosition);
 
     vec3 reflectedLight = vec3(0.0);
     vec3 diffuseLight = vec3(0.0);
@@ -396,6 +397,32 @@ void main() {
     }
 
     vec3 outgoingLight = reflectedLight + diffuseLight + indirectDiffuse + indirectSpecular;
+    return outgoingLight;
+}
+
+void main() {
+    float r = roughness;
+    float m = metalness;
+
+    mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
+    vec3 worldNormal = normalize(viewMatrixInverse * vNormal);
+    if (hasNormalMap) {
+        worldNormal = perturbNormal2Arb(vWorldPosition, worldNormal, vUv * normalRepeat, normalMap, normalScale);
+    }
+    if (hasRoughnessMap) {
+        r *= texture(roughnessMap, vUv * roughnessMapRepeat).r;
+    }
+    if (hasMetalnessMap) {
+        m *= texture(metalnessMap, vUv * metalnessMapRepeat).r;
+    }
+    vec4 diffuseColor = vec4(color, 1.0);
+    if (hasMap) {
+        vec4 texColor = texture(map, vUv * mapRepeat);
+        texColor = pow(texColor, vec4(2.2)); 
+        diffuseColor *= texColor;
+    }
+
+    vec3 outgoingLight = shade(vWorldPosition, worldNormal, vUv, diffuseColor, r, m);
     outgoingLight = ACESFilmicToneMapping(outgoingLight);
     fragColor = linearToSRGB(vec4(outgoingLight, 1.0));
 }
@@ -419,17 +446,39 @@ class Material extends RawShaderMaterial {
   constructor(params) {
     super({
       vertexShader: params.vertexShader ?? vertexShader,
-      fragmentShader,
+      fragmentShader: params.fragmentShader ?? fragmentShader,
       uniforms: {
         color: { value: params.uniforms.color },
         roughness: { value: params.uniforms.roughness },
         metalness: { value: params.uniforms.metalness },
         toneMappingExposure: { value: 1.0 },
 
-        hasMap: { value: false },
-        map: { value: null },
+        hasMap: { value: params.uniforms.hasMap ?? false },
+        map: { value: params.uniforms.map },
+        mapRepeat: {
+          value: params.uniforms.mapRepeat ?? new Vector2(1, 1),
+        },
 
-        hasNormalMap: { value: false },
+        hasRoughnessMap: { value: params.uniforms.hasRoughnessMap },
+        roughnessMap: { value: params.uniforms.roughnessMap },
+        roughnessMapRepeat: {
+          value: params.uniforms.roughnessMapRepeat ?? new Vector2(1, 1),
+        },
+
+        hasMetalnessMap: { value: params.uniforms.hasMetalnessMap },
+        metalnessMap: { value: params.uniforms.roughnessMap },
+        metalnessMapRepeat: {
+          value: params.uniforms.metalnessMapRepeat ?? new Vector2(1, 1),
+        },
+
+        hasNormalMap: { value: params.uniforms.hasNormalMap },
+        normalMap: { value: params.uniforms.normalMap },
+        normalScale: {
+          value: params.uniforms.normalScale ?? new Vector2(1, 1),
+        },
+        normalRepeat: {
+          value: params.uniforms.normalRepeat ?? new Vector2(1, 1),
+        },
 
         ambientLightColor: { value: new Color(0) },
 
