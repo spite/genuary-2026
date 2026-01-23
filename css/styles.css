@@ -41,6 +41,7 @@ body {
   display: none;
 }
 
+.action,
 #randomize-button {
   padding: 15px;
 }
