@@ -232,6 +232,7 @@ ${perlin}
 uniform int shapeFrom;
 uniform int shapeTo;
 uniform float factor;
+uniform float time;
 
 float bias(float t, float b) {
     return t / ((1.0 / b - 2.0) * (1.0 - t) + 1.0);
@@ -267,7 +268,7 @@ float map(in vec3 p) {
     b = sdTetrahedron(p, .4, r);
   }
 
-  float d = .1 + .9 * ( cnoise(p / 1.) * .5 + .5 );
+  float d = .1 + .9 * ( cnoise(p / 1. + 0.*time) * .5 + .5 );
   float f = bias(factor, d);
 
   return mix(a, b, elasticOut(f, 7., 13.));
@@ -383,6 +384,7 @@ const material = new Material({
     factor: { value: 0 },
     uvColor: { value: new Color(rainbow[5]) },
     uvLightIntensity: { value: 0 },
+    time: { value: 0 },
   },
 });
 
@@ -463,9 +465,20 @@ window.addEventListener("keydown", (e) => {
     params.lights.set(!params.lights());
   }
 });
-document.querySelector("#randomize-button")?.addEventListener("click", () => {
+const randButton = document.querySelector("#randomize-button");
+randButton?.addEventListener("click", () => {
   randomize();
 });
+
+const lightButton = document.createElement("div");
+lightButton.className = "button action";
+const lightImg = document.createElement("img");
+lightImg.src = "../assets/light-bulb.svg";
+lightButton.append(lightImg);
+lightButton.addEventListener("click", () => {
+  params.lights.set(!params.lights());
+});
+randButton.after(lightButton);
 
 const renderScene = new RenderPass(scene, camera);
 
@@ -507,6 +520,7 @@ render(() => {
       params.lights() ? mesh.material.uniforms.color.value : black
     );
     mesh.material.uniforms.uvLightIntensity.value = 1 - lightsFactor();
+    mesh.material.uniforms.time.value += dt / 10;
   }
 
   bloomPass.radius = 0.1;
