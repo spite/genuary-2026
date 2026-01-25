@@ -28,11 +28,13 @@ const maxGridSize = getMaxGridSize(renderer);
 console.log(maxGridSize);
 
 const marchingCubes = new MarchingCubes({
-  size: Math.min(64, maxGridSize.maxSize),
+  size: 64, //Math.min(64, maxGridSize.maxSize),
+  textureSize: 64,
   isoLevel: 0.5,
 });
 marchingCubes.setTextureMode("atlas");
 marchingCubes.setIsoLevel(0.5);
+marchingCubes.setNormalMode("tetrahedron");
 
 const rainbow = [
   "#ef4444",
