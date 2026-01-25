@@ -13,7 +13,7 @@ import {
   LinearFilter,
 } from "three";
 import { shader as sdfs } from "shaders/sdfs.js";
-// import { shader as trefoil } from "shaders/trefoil.js";
+import { shader as trefoil } from "shaders/trefoil.js";
 
 const sdfCommonCode = `
 vec3 rotateX(vec3 p, float angle) {
@@ -35,6 +35,7 @@ vec3 rotateZ(vec3 p, float angle) {
 }
 
 ${sdfs}
+${trefoil}
 
 float opSmoothUnion(float d1, float d2, float k) {
     k *= 4.0;
@@ -69,13 +70,14 @@ float sampleField(vec3 p, vec3 gridSize, float time) {
     // float val2 = sdTorus(rotateZ(rotateX(centered + vec3(0.0, 0.0, 5.0 * cos(time)), time), time / 2.0), vec2(15.0, 10.0));
     // float val = opSmoothUnion(val1, val2, 1.0);
     
-    // float val = sdTrefoilKnot(centered, 8.0, 0.4, 64 * 6);
+    float val0 = fDodecahedron(centered, 20.0, 20.0);
+    float val1 = sdTrefoilKnot(rotateZ(centered, uTime * .9), 8.0, 0.4, 64 * 6);
+    float val2 = sdTrefoilKnot(rotateX(centered, uTime), 8.0, 0.4, 64 * 6);
     
-    // Current: Dodecahedron subtracted from icosahedron
-    float val1 = fDodecahedron(centered, 20.0, 20.0);
-    float val2 = fIcosahedron(rotateX(centered, time), 25.0, 20.0);
-    float val = opSmoothSubtraction(val1, val2, 2.0);
-
+    // float val1 = fDodecahedron(centered, 20.0, 20.0);
+    // float val2 = fIcosahedron(rotateX(centered, time), 25.0, 20.0);
+    float val11 = opSmoothUnion(val1, val2, 2.0);
+    float val = opSmoothSubtraction(val11, val0, 2.0);
     return val;
 }
 `;
@@ -108,19 +110,15 @@ out vec4 fragColor;
 ${sdfCommonCode}
 
 void main() {
-    // Convert UV to atlas position
     vec2 atlasPixel = vUv * vec2(uGridSize.x * uSlicesPerRow, uGridSize.y * uAtlasRows);
     
-    // Determine which slice (z) we're in
     int sliceX = int(floor(atlasPixel.x / uGridSize.x));
     int sliceY = int(floor(atlasPixel.y / uGridSize.y));
     int z = sliceY * int(uSlicesPerRow) + sliceX;
     
-    // Get x, y within the slice
-    float x = mod(atlasPixel.x, uGridSize.x);
-    float y = mod(atlasPixel.y, uGridSize.y);
+    float x = floor(mod(atlasPixel.x, uGridSize.x));
+    float y = floor(mod(atlasPixel.y, uGridSize.y));
     
-    // Check bounds
     if (z >= int(uGridSize.z)) {
         fragColor = vec4(1000.0, 0.0, 0.0, 1.0);
         return;
@@ -143,6 +141,9 @@ class VolumeRenderer {
     this.atlasHeight = size * this.atlasRows;
 
     this.textureMode = "atlas";
+
+    this._texture3DDirty = true;
+    this._glTexture3D = null;
 
     this.sliceOffsets = new Uint16Array(size * 2);
     for (let z = 0; z < size; z++) {
@@ -211,24 +212,32 @@ class VolumeRenderer {
     renderer.setRenderTarget(this.renderTarget2D);
     renderer.render(this.scene, this.camera);
     renderer.setRenderTarget(currentRenderTarget);
+
+    this._texture3DDirty = true;
   }
 
   update3D(renderer, time) {
     this.update2D(renderer, time);
 
+    if (!this._texture3DDirty) {
+      return;
+    }
+
     const gl = renderer.getContext();
 
-    const textureProperties = renderer.properties.get(this.texture3D);
-    if (!textureProperties.__webglTexture) {
-      renderer.initTexture(this.texture3D);
+    if (!this._glTexture3D) {
+      const textureProperties = renderer.properties.get(this.texture3D);
+      if (!textureProperties.__webglTexture) {
+        renderer.initTexture(this.texture3D);
+      }
+      this._glTexture3D = textureProperties.__webglTexture;
     }
-    const glTexture = textureProperties.__webglTexture;
 
     const renderTargetProperties = renderer.properties.get(this.renderTarget2D);
     const atlasFramebuffer = renderTargetProperties.__webglFramebuffer;
 
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, atlasFramebuffer);
-    gl.bindTexture(gl.TEXTURE_3D, glTexture);
+    gl.bindTexture(gl.TEXTURE_3D, this._glTexture3D);
 
     const offsets = this.sliceOffsets;
     const size = this.size;
@@ -247,6 +256,8 @@ class VolumeRenderer {
     }
 
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+
+    this._texture3DDirty = false;
   }
 
   update(renderer, time) {
@@ -270,11 +281,17 @@ class VolumeRenderer {
     return this.textureMode;
   }
 
+  invalidateCache() {
+    this._glTexture3D = null;
+    this._texture3DDirty = true;
+  }
+
   dispose() {
     this.renderTarget2D.dispose();
     this.texture3D.dispose();
     this.material2D.dispose();
     this.sdfQuad.geometry.dispose();
+    this._glTexture3D = null;
   }
 }
 
