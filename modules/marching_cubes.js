@@ -33,92 +33,114 @@ uniform vec3 uGridSize;
 uniform vec3 uHalfGridSize;
 uniform ivec3 uGridSizeInt;
 uniform float uIsoLevel;
+uniform vec3 uTextureSize;
+uniform vec3 uGridToTexScale;
 uniform float uSlicesPerRow;
 uniform float uAtlasRows;
 uniform vec2 uInvAtlasSize;
+
+uniform float uInv15;
+uniform float uInvGridXY;
+uniform float uInvGridX;
+
+uniform int uNormalMode;
 
 in uint vIndex;
 
 out vec3 vNormal;
 out vec3 vPos;
 
-// Edge connection list
 const int edgeConnections[24] = int[](
     0,1, 1,2, 2,3, 3,0,
     4,5, 5,6, 6,7, 7,4,
     0,4, 1,5, 2,6, 3,7
 );
 
-// Corner offsets
 const vec3 corners[8] = vec3[](
     vec3(0,0,0), vec3(1,0,0), vec3(1,0,1), vec3(0,0,1),
     vec3(0,1,0), vec3(1,1,0), vec3(1,1,1), vec3(0,1,1)
 );
 
-// Sample SDF from the atlas texture (single slice, for marching cubes grid sampling)
-float sampleSDF(vec3 pos) {
-    pos = clamp(pos, vec3(0.0), uGridSize - 1.0);
+float sampleSDF(vec3 gridPos) {
+    vec3 pos = gridPos * uGridToTexScale;
+    pos = clamp(pos, vec3(0.0), uTextureSize - 1.0);
     
-    float z = pos.z;
+    float z = floor(pos.z + 0.5);
     int sliceX = int(mod(z, uSlicesPerRow));
     int sliceY = int(z / uSlicesPerRow);
     
-    float u = (float(sliceX) * uGridSize.x + pos.x + 0.5) * uInvAtlasSize.x;
-    float v = (float(sliceY) * uGridSize.y + pos.y + 0.5) * uInvAtlasSize.y;
+    float u = (float(sliceX) * uTextureSize.x + pos.x + 0.5) * uInvAtlasSize.x;
+    float v = (float(sliceY) * uTextureSize.y + pos.y + 0.5) * uInvAtlasSize.y;
     
     return texture(uSDFTexture, vec2(u, v)).r;
 }
 
-// Sample SDF with Z-axis interpolation (for smooth normals)
-// Hardware bilinear handles X/Y, we manually interpolate Z between slices
-float sampleSDFSmooth(vec3 pos) {
-    pos = clamp(pos, vec3(0.0), uGridSize - 1.0);
+float sampleSDFSmooth(vec3 gridPos) {
+    vec3 pos = gridPos * uGridToTexScale;
+    pos = clamp(pos, vec3(0.0), uTextureSize - 1.0);
     
     float z = pos.z;
     float zFloor = floor(z);
-    float zCeil = min(zFloor + 1.0, uGridSize.z - 1.0);
+    float zCeil = min(zFloor + 1.0, uTextureSize.z - 1.0);
     float zFrac = z - zFloor;
     
-    // Sample from floor Z slice
-    int sliceX0 = int(mod(zFloor, uSlicesPerRow));
-    int sliceY0 = int(zFloor / uSlicesPerRow);
-    float u0 = (float(sliceX0) * uGridSize.x + pos.x + 0.5) * uInvAtlasSize.x;
-    float v0 = (float(sliceY0) * uGridSize.y + pos.y + 0.5) * uInvAtlasSize.y;
+    float zFloorRounded = floor(zFloor + 0.5);
+    float zCeilRounded = floor(zCeil + 0.5);
+    
+    int sliceX0 = int(mod(zFloorRounded, uSlicesPerRow));
+    int sliceY0 = int(zFloorRounded / uSlicesPerRow);
+    float u0 = (float(sliceX0) * uTextureSize.x + pos.x + 0.5) * uInvAtlasSize.x;
+    float v0 = (float(sliceY0) * uTextureSize.y + pos.y + 0.5) * uInvAtlasSize.y;
     float val0 = texture(uSDFTexture, vec2(u0, v0)).r;
     
-    // Sample from ceil Z slice
-    int sliceX1 = int(mod(zCeil, uSlicesPerRow));
-    int sliceY1 = int(zCeil / uSlicesPerRow);
-    float u1 = (float(sliceX1) * uGridSize.x + pos.x + 0.5) * uInvAtlasSize.x;
-    float v1 = (float(sliceY1) * uGridSize.y + pos.y + 0.5) * uInvAtlasSize.y;
+    int sliceX1 = int(mod(zCeilRounded, uSlicesPerRow));
+    int sliceY1 = int(zCeilRounded / uSlicesPerRow);
+    float u1 = (float(sliceX1) * uTextureSize.x + pos.x + 0.5) * uInvAtlasSize.x;
+    float v1 = (float(sliceY1) * uTextureSize.y + pos.y + 0.5) * uInvAtlasSize.y;
     float val1 = texture(uSDFTexture, vec2(u1, v1)).r;
     
     return mix(val0, val1, zFrac);
 }
 
-// Central difference normal with Z-interpolation - 12 texture fetches
-vec3 getNormal(vec3 p) {
-    float eps = 1.0;
+vec3 getNormalCentralDiff(vec3 p, float eps) {
     float dx = sampleSDFSmooth(p + vec3(eps, 0.0, 0.0)) - sampleSDFSmooth(p - vec3(eps, 0.0, 0.0));
     float dy = sampleSDFSmooth(p + vec3(0.0, eps, 0.0)) - sampleSDFSmooth(p - vec3(0.0, eps, 0.0));
     float dz = sampleSDFSmooth(p + vec3(0.0, 0.0, eps)) - sampleSDFSmooth(p - vec3(0.0, 0.0, eps));
     return -normalize(vec3(dx, dy, dz));
 }
 
+vec3 getNormalTetrahedron(vec3 p, float eps) {
+    vec2 k = vec2(1.0, -1.0);
+    return -normalize(
+        k.xyy * sampleSDFSmooth(p + k.xyy * eps) +
+        k.yyx * sampleSDFSmooth(p + k.yyx * eps) +
+        k.yxy * sampleSDFSmooth(p + k.yxy * eps) +
+        k.xxx * sampleSDFSmooth(p + k.xxx * eps)
+    );
+}
+
+vec3 getNormal(vec3 p) {
+    float eps = 1.0 / uGridToTexScale.x;
+    if (uNormalMode == 1) {
+        return getNormalTetrahedron(p, eps);
+    }
+    return getNormalCentralDiff(p, eps);
+}
+
 void main() {
     int id = int(vIndex);
-    int voxelID = id / 15;
-    int vertexID = id % 15;
-
-    int gridXY = uGridSizeInt.x * uGridSizeInt.y;
     
-    int z = voxelID / gridXY;
-    int temp = voxelID - z * gridXY;
-    int y = temp / uGridSizeInt.x;
+    int voxelID = int(floor(float(id) * uInv15));
+    int vertexID = id - voxelID * 15;
+
+    int z = int(floor(float(voxelID) * uInvGridXY));
+    int temp = voxelID - z * uGridSizeInt.x * uGridSizeInt.y;
+
+    int y = int(floor(float(temp) * uInvGridX));
     int x = temp - y * uGridSizeInt.x;
 
     if (x >= uGridSizeInt.x - 1 || y >= uGridSizeInt.y - 1 || z >= uGridSizeInt.z - 1) {
-        gl_Position = vec4(0.0);
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
     }
 
@@ -138,7 +160,7 @@ void main() {
     int edgeIndex = texelFetch(uTriTable, ivec2(vertexID, cubeIndex), 0).r;
 
     if (edgeIndex == -1) {
-        gl_Position = vec4(0.0);
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
     }
 
@@ -150,7 +172,7 @@ void main() {
     float val1 = values[v1];
     float val2 = values[v2];
 
-    float t = (uIsoLevel - val1) / (val2 - val1);
+    float t = clamp((uIsoLevel - val1) / (val2 - val1), 0.0, 1.0);
     vec3 finalPos = mix(p1, p2, t);
 
     vNormal = getNormal(finalPos);
@@ -177,54 +199,77 @@ uniform vec3 uHalfGridSize;
 uniform vec3 uInvGridSize;
 uniform ivec3 uGridSizeInt;
 uniform float uIsoLevel;
+uniform vec3 uTextureSize;
+uniform vec3 uGridToTexScale;
+uniform vec3 uInvTextureSize;
+
+uniform float uInv15;
+uniform float uInvGridXY;
+uniform float uInvGridX;
+
+uniform int uNormalMode;
 
 in uint vIndex;
 
 out vec3 vNormal;
 out vec3 vPos;
 
-// Edge connection list
 const int edgeConnections[24] = int[](
     0,1, 1,2, 2,3, 3,0,
     4,5, 5,6, 6,7, 7,4,
     0,4, 1,5, 2,6, 3,7
 );
 
-// Corner offsets
 const vec3 corners[8] = vec3[](
     vec3(0,0,0), vec3(1,0,0), vec3(1,0,1), vec3(0,0,1),
     vec3(0,1,0), vec3(1,1,0), vec3(1,1,1), vec3(0,1,1)
 );
 
-// Sample SDF from 3D texture - hardware trilinear filtering
-float sampleSDF(vec3 pos) {
-    vec3 uvw = (pos + 0.5) * uInvGridSize;
+float sampleSDF(vec3 gridPos) {
+    vec3 pos = gridPos * uGridToTexScale;
+    vec3 uvw = (pos + 0.5) * uInvTextureSize;
     return texture(utexture3D, uvw).r;
 }
 
-// Central difference normal - 6 texture fetches
-vec3 getNormal(vec3 p) {
-    float eps = 1.0;
+vec3 getNormalCentralDiff(vec3 p, float eps) {
     float dx = sampleSDF(p + vec3(eps, 0.0, 0.0)) - sampleSDF(p - vec3(eps, 0.0, 0.0));
     float dy = sampleSDF(p + vec3(0.0, eps, 0.0)) - sampleSDF(p - vec3(0.0, eps, 0.0));
     float dz = sampleSDF(p + vec3(0.0, 0.0, eps)) - sampleSDF(p - vec3(0.0, 0.0, eps));
     return -normalize(vec3(dx, dy, dz));
 }
 
+vec3 getNormalTetrahedron(vec3 p, float eps) {
+    vec2 k = vec2(1.0, -1.0);
+    return -normalize(
+        k.xyy * sampleSDF(p + k.xyy * eps) +
+        k.yyx * sampleSDF(p + k.yyx * eps) +
+        k.yxy * sampleSDF(p + k.yxy * eps) +
+        k.xxx * sampleSDF(p + k.xxx * eps)
+    );
+}
+
+vec3 getNormal(vec3 p) {
+    float eps = 1.0 / uGridToTexScale.x;
+    if (uNormalMode == 1) {
+        return getNormalTetrahedron(p, eps);
+    }
+    return getNormalCentralDiff(p, eps);
+}
+
 void main() {
     int id = int(vIndex);
-    int voxelID = id / 15;
-    int vertexID = id % 15;
-
-    int gridXY = uGridSizeInt.x * uGridSizeInt.y;
     
-    int z = voxelID / gridXY;
-    int temp = voxelID - z * gridXY;
-    int y = temp / uGridSizeInt.x;
+    int voxelID = int(floor(float(id) * uInv15));
+    int vertexID = id - voxelID * 15;
+
+    int z = int(floor(float(voxelID) * uInvGridXY));
+    int temp = voxelID - z * uGridSizeInt.x * uGridSizeInt.y;
+
+    int y = int(floor(float(temp) * uInvGridX));
     int x = temp - y * uGridSizeInt.x;
 
     if (x >= uGridSizeInt.x - 1 || y >= uGridSizeInt.y - 1 || z >= uGridSizeInt.z - 1) {
-        gl_Position = vec4(0.0);
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
     }
 
@@ -244,7 +289,7 @@ void main() {
     int edgeIndex = texelFetch(uTriTable, ivec2(vertexID, cubeIndex), 0).r;
 
     if (edgeIndex == -1) {
-        gl_Position = vec4(0.0);
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
     }
 
@@ -256,7 +301,7 @@ void main() {
     float val1 = values[v1];
     float val2 = values[v2];
 
-    float t = (uIsoLevel - val1) / (val2 - val1);
+    float t = clamp((uIsoLevel - val1) / (val2 - val1), 0.0, 1.0);
     vec3 finalPos = mix(p1, p2, t);
 
     vNormal = getNormal(finalPos);
@@ -288,12 +333,19 @@ void main() {
 
 class MarchingCubes {
   constructor(options = {}) {
-    const { size = 64, isoLevel = ISO_LEVEL, volumeRenderer } = options;
+    const {
+      size = 64,
+      textureSize,
+      isoLevel = ISO_LEVEL,
+      volumeRenderer,
+    } = options;
 
     this.size = size;
+    this.textureSize = textureSize || size;
     this.isoLevel = isoLevel;
 
-    this.volumeRenderer = volumeRenderer || new VolumeRenderer(size);
+    this.volumeRenderer =
+      volumeRenderer || new VolumeRenderer(this.textureSize);
 
     this.initTriTable();
     this.initGeometry();
@@ -339,11 +391,26 @@ class MarchingCubes {
   initMaterials() {
     const vr = this.volumeRenderer;
     const s = this.size;
+    const ts = this.textureSize;
 
     const gridSize = new Vector3(s, s, s);
     const halfGridSize = new Vector3(s * 0.5, s * 0.5, s * 0.5);
     const invGridSize = new Vector3(1.0 / s, 1.0 / s, 1.0 / s);
+
+    const textureSize = new Vector3(ts, ts, ts);
+    const invTextureSize = new Vector3(1.0 / ts, 1.0 / ts, 1.0 / ts);
+
+    const scale = ts / s;
+    const gridToTexScale = new Vector3(scale, scale, scale);
+
     const invAtlasSize = new Vector2(1.0 / vr.atlasWidth, 1.0 / vr.atlasHeight);
+
+    const inv15 = 1.0 / 15.0;
+    const gridXY = s * s;
+    const invGridXY = 1.0 / gridXY;
+    const invGridX = 1.0 / s;
+
+    this.normalMode = 0;
 
     this.material2D = new RawShaderMaterial({
       uniforms: {
@@ -353,9 +420,15 @@ class MarchingCubes {
         uHalfGridSize: { value: halfGridSize },
         uGridSizeInt: { value: [s, s, s] },
         uIsoLevel: { value: this.isoLevel },
+        uTextureSize: { value: textureSize },
+        uGridToTexScale: { value: gridToTexScale },
         uSlicesPerRow: { value: vr.slicesPerRow },
         uAtlasRows: { value: vr.atlasRows },
         uInvAtlasSize: { value: invAtlasSize },
+        uInv15: { value: inv15 },
+        uInvGridXY: { value: invGridXY },
+        uInvGridX: { value: invGridX },
+        uNormalMode: { value: this.normalMode },
         modelViewMatrix: { value: new Matrix4() },
         projectionMatrix: { value: new Matrix4() },
       },
@@ -376,6 +449,13 @@ class MarchingCubes {
         uInvGridSize: { value: invGridSize },
         uGridSizeInt: { value: [s, s, s] },
         uIsoLevel: { value: this.isoLevel },
+        uTextureSize: { value: textureSize },
+        uGridToTexScale: { value: gridToTexScale },
+        uInvTextureSize: { value: invTextureSize },
+        uInv15: { value: inv15 },
+        uInvGridXY: { value: invGridXY },
+        uInvGridX: { value: invGridX },
+        uNormalMode: { value: this.normalMode },
         modelViewMatrix: { value: new Matrix4() },
         projectionMatrix: { value: new Matrix4() },
       },
@@ -435,13 +515,46 @@ class MarchingCubes {
     return this.isoLevel;
   }
 
+  setNormalMode(mode) {
+    if (mode !== "central" && mode !== "tetrahedron") {
+      console.warn(
+        `Invalid normal mode: ${mode}. Use "central" or "tetrahedron".`
+      );
+      return;
+    }
+
+    this.normalMode = mode === "tetrahedron" ? 1 : 0;
+    this.material2D.uniforms.uNormalMode.value = this.normalMode;
+    this.material3D.uniforms.uNormalMode.value = this.normalMode;
+
+    console.log(`Normal calculation mode set to: ${mode}`);
+  }
+
+  getNormalMode() {
+    return this.normalMode === 1 ? "tetrahedron" : "central";
+  }
+
   getInfo() {
+    const totalVoxels = this.size * this.size * this.size;
+    const vertexCount = totalVoxels * 15;
+    const textureTotalVoxels =
+      this.textureSize * this.textureSize * this.textureSize;
+
     return {
-      currentSize: this.size,
+      gridSize: this.size,
+      textureSize: this.textureSize,
+      textureToGridRatio: this.textureSize / this.size,
       textureMode: this.getTextureMode(),
-      current: {
-        vertexCount: currentVertexCount,
-        memoryMB: currentMemoryMB.toFixed(2),
+      normalMode: this.getNormalMode(),
+      isoLevel: this.isoLevel,
+      grid: {
+        totalVoxels: totalVoxels,
+        maxVertices: vertexCount,
+      },
+      texture: {
+        totalVoxels: textureTotalVoxels,
+        atlasWidth: this.volumeRenderer.atlasWidth,
+        atlasHeight: this.volumeRenderer.atlasHeight,
       },
     };
   }
