@@ -13,7 +13,7 @@ import {
   LinearFilter,
 } from "three";
 import { shader as sdfs } from "shaders/sdfs.js";
-import { shader as trefoil } from "shaders/trefoil.js";
+// import { shader as trefoil } from "shaders/trefoil.js";
 
 const sdfCommonCode = `
 vec3 rotateX(vec3 p, float angle) {
@@ -35,7 +35,6 @@ vec3 rotateZ(vec3 p, float angle) {
 }
 
 ${sdfs}
-${trefoil}
 
 float opSmoothUnion(float d1, float d2, float k) {
     k *= 4.0;
