@@ -145,6 +145,12 @@ class VolumeRenderer {
 
     this.textureMode = "atlas";
 
+    this.sliceOffsets = new Uint16Array(size * 2);
+    for (let z = 0; z < size; z++) {
+      this.sliceOffsets[z * 2] = (z % this.slicesPerRow) * size;
+      this.sliceOffsets[z * 2 + 1] = Math.floor(z / this.slicesPerRow) * size;
+    }
+
     this.initRenderTargets();
     this.initMaterials();
     this.initScene();
@@ -225,23 +231,19 @@ class VolumeRenderer {
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, atlasFramebuffer);
     gl.bindTexture(gl.TEXTURE_3D, glTexture);
 
-    for (let z = 0; z < this.size; z++) {
-      const sliceX = z % this.slicesPerRow;
-      const sliceY = Math.floor(z / this.slicesPerRow);
-
-      const srcX = sliceX * this.size;
-      const srcY = sliceY * this.size;
-
+    const offsets = this.sliceOffsets;
+    const size = this.size;
+    for (let z = 0; z < size; z++) {
       gl.copyTexSubImage3D(
         gl.TEXTURE_3D,
         0,
         0,
         0,
         z,
-        srcX,
-        srcY,
-        this.size,
-        this.size
+        offsets[z * 2],
+        offsets[z * 2 + 1],
+        size,
+        size
       );
     }
 
