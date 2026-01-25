@@ -156,6 +156,11 @@ float sdRoundedCylinder( vec3 p, float ra, float rb, float h ) {
   vec2 d = vec2( length(p.xz)-ra+rb, abs(p.y) - h + rb );
   return min(max(d.x,d.y),0.0) + length(max(d,0.0)) - rb;
 }
+
+float sdTorus( vec3 p, vec2 t ) {
+  vec2 q = vec2(length(p.xz)-t.x,p.y);
+  return length(q)-t.y;
+}
 `;
 
 export { shader };
