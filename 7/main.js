@@ -24,18 +24,6 @@ import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
 import { MarchingCubes, getMaxGridSize } from "modules/marching_cubes.js";
 
-const maxGridSize = getMaxGridSize(renderer);
-console.log(maxGridSize);
-
-const marchingCubes = new MarchingCubes({
-  size: 64, //Math.min(64, maxGridSize.maxSize),
-  textureSize: 64,
-  isoLevel: 0.5,
-});
-marchingCubes.setTextureMode("atlas");
-marchingCubes.setIsoLevel(0.5);
-marchingCubes.setNormalMode("tetrahedron");
-
 const rainbow = [
   "#ef4444",
   "#f97316",
@@ -48,6 +36,32 @@ const rainbow = [
   "#d946ef",
   "#f43f5e",
 ];
+
+const maxGridSize = getMaxGridSize(renderer);
+console.log(maxGridSize);
+
+const marchingCubes = new MarchingCubes({
+  size: Math.min(64, maxGridSize.maxSize),
+  textureSize: 64,
+  isoLevel: 0.5,
+});
+marchingCubes.setTextureMode("atlas");
+marchingCubes.setIsoLevel(0.5);
+marchingCubes.setNormalMode("tetrahedron");
+
+// Load env map
+const envMap = await loadEnvMap(
+  `../assets/spruit_sunrise_2k.hdr.jpg`,
+  renderer,
+);
+marchingCubes.setEnvMap(envMap);
+
+// Set PBR properties
+marchingCubes.setRoughness(0);
+marchingCubes.setMetalness(0);
+const c = new Color(Maf.randomElement(rainbow));
+marchingCubes.setBaseColor(c.r, c.g, c.b);
+marchingCubes.setEnvMapIntensity(0.2);
 
 const defaults = {
   seed: 1337,
@@ -64,7 +78,7 @@ const params = fromDefaults(defaults);
 
 const gui = new GUI(
   "7. Boolean algebra",
-  document.querySelector("#gui-container")
+  document.querySelector("#gui-container"),
 );
 gui.addSlider("Points", params.points, 1, 250, 1);
 gui.addRangeSlider("Range", params.range, 0, 1, 0.01);
@@ -76,12 +90,13 @@ gui.addSlider("Offset Distance", params.offsetDistance, 0, 2, 0.01);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
-  "<p>Press R to shuffle the objects.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>"
+  "<p>Press R to shuffle the objects.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>",
 );
 gui.show();
 
 const color = rainbow[rainbow.length - 1];
 renderer.setClearColor(new Color(color));
+marchingCubes.setAmbientColor(color);
 
 const scene = new Scene();
 const group = new Group();
