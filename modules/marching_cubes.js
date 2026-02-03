@@ -1,12 +1,14 @@
 import { triTable } from "modules/MarchingCubesGeometry.js";
 import {
   BufferGeometry,
+  Color,
   NearestFilter,
   DataTexture,
   Mesh,
   RedIntegerFormat,
   IntType,
   RawShaderMaterial,
+  Matrix3,
   Matrix4,
   Vector2,
   Vector3,
@@ -34,8 +36,10 @@ const vec3 corners[8] = vec3[](
 `;
 
 const VERTEX_COMMON_UNIFORMS = `
+uniform mat4 modelMatrix;
 uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
+uniform mat3 normalMatrix;
 uniform isampler2D uTriTable;
 uniform vec3 uGridSize;
 uniform vec3 uHalfGridSize;
@@ -59,7 +63,7 @@ uniform float uShadowMaxDist;
 in uint vIndex;
 
 out vec3 vNormal;
-out vec3 vPos;
+out vec3 vWorldPosition;
 out vec3 vGridPos;
 out float vShadow;
 `;
@@ -186,34 +190,303 @@ void main() {
     float t = clamp((uIsoLevel - val1) / (val2 - val1), 0.0, 1.0);
     vec3 finalPos = mix(p1, p2, t);
 
-    vNormal = getNormal(finalPos);
+    vec3 objectNormal = getNormal(finalPos);
+    // Transform normal to view space (will convert to world space in fragment shader)
+    vNormal = normalize(normalMatrix * objectNormal);
     vGridPos = finalPos;
     vShadow = calcShadow(finalPos, normalize(uLightDir));
     
     vec3 centeredPos = finalPos - uHalfGridSize;
-    vPos = centeredPos;
+    vec4 worldPos = modelMatrix * vec4(centeredPos, 1.0);
+    vWorldPosition = worldPos.xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(centeredPos, 1.0);
 }
 `;
 
+// PBR lighting functions
+const PBR_FUNCTIONS = `
+#define PI 3.141592653589793
+#define RECIPROCAL_PI 0.3183098861837907
+#define EPSILON 1e-6
+#define saturate( a ) clamp( a, 0.0, 1.0 )
+
+vec3 RRTAndODTFit( vec3 v ) {
+    vec3 a = v * ( v + 0.0245786 ) - 0.000090537;
+    vec3 b = v * ( 0.983729 * v + 0.4329510 ) + 0.238081;
+    return a / b;
+}
+
+vec3 ACESFilmicToneMapping( vec3 color, float exposure ) {
+    const mat3 ACESInputMat = mat3(
+        0.59719, 0.07600, 0.02840,
+        0.35458, 0.90834, 0.13383,
+        0.04823, 0.01566, 0.83777
+    );
+    const mat3 ACESOutputMat = mat3(
+        1.60475, -0.10208, -0.00327,
+        -0.53108,  1.10813, -0.07276,
+        -0.07367, -0.00605,  1.07602
+    );
+    color *= exposure / 0.6;
+    color = ACESInputMat * color;
+    color = RRTAndODTFit( color );
+    color = ACESOutputMat * color;
+    return saturate( color );
+}
+
+vec4 linearToSRGB( in vec4 value ) {
+    return vec4( mix( pow( value.rgb, vec3( 0.41666 ) ) * 1.055 - vec3( 0.055 ), value.rgb * 12.92, vec3( lessThanEqual( value.rgb, vec3( 0.0031308 ) ) ) ), value.a );
+}
+
+vec3 F_Schlick(float u, vec3 f0) { 
+    return f0 + (vec3(1.0) - f0) * pow(1.0 - u, 5.0); 
+}
+
+vec3 F_SchlickRoughness(float u, vec3 f0, float roughness) {
+    return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(1.0 - u, 5.0);
+}
+
+float D_GGX(float NdotH, float alpha) {
+    float a2 = alpha * alpha;
+    float f = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+    return a2 / (PI * f * f);
+}
+
+float V_GGX_SmithCorrelated(float alpha, float dotNV, float dotNL) {
+    float a2 = alpha * alpha;
+    float gv = dotNL * sqrt(dotNV * dotNV * (1.0 - a2) + a2);
+    float gl = dotNV * sqrt(dotNL * dotNL * (1.0 - a2) + a2);
+    return 0.5 / max(gv + gl, EPSILON);
+}
+
+vec2 EnvBRDFApprox(float roughness, float NoV) {
+    vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = roughness * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+    vec2 AB = vec2(-1.04, 1.04) * a004 + r.zw;
+    return AB;
+}
+
+// PMREM Sampling
+#define cubeUV_minMipLevel 4.0
+#define cubeUV_minTileSize 16.0
+
+float getFace( vec3 direction ) {
+    vec3 absDirection = abs( direction );
+    float face = - 1.0;
+    if ( absDirection.x > absDirection.z ) {
+        if ( absDirection.x > absDirection.y )
+            face = direction.x > 0.0 ? 0.0 : 3.0;
+        else
+            face = direction.y > 0.0 ? 1.0 : 4.0;
+    } else {
+        if ( absDirection.z > absDirection.y )
+            face = direction.z > 0.0 ? 2.0 : 5.0;
+        else
+            face = direction.y > 0.0 ? 1.0 : 4.0;
+    }
+    return face;
+}
+
+vec2 getUV( vec3 direction, float face ) {
+    vec2 uv;
+    if ( face == 0.0 ) {
+        uv = vec2( direction.z, direction.y ) / abs( direction.x );
+    } else if ( face == 1.0 ) {
+        uv = vec2( - direction.x, - direction.z ) / abs( direction.y );
+    } else if ( face == 2.0 ) {
+        uv = vec2( - direction.x, direction.y ) / abs( direction.z );
+    } else if ( face == 3.0 ) {
+        uv = vec2( - direction.z, direction.y ) / abs( direction.x );
+    } else if ( face == 4.0 ) {
+        uv = vec2( - direction.x, direction.z ) / abs( direction.y );
+    } else {
+        uv = vec2( direction.x, direction.y ) / abs( direction.z );
+    }
+    return 0.5 * ( uv + 1.0 );
+}
+
+vec3 bilinearCubeUV( sampler2D envMapSampler, vec3 direction, float mipInt, float cubeUV_maxMip, float cubeUV_texelWidth, float cubeUV_texelHeight ) {
+    float face = getFace( direction );
+    float filterInt = max( cubeUV_minMipLevel - mipInt, 0.0 );
+    mipInt = max( mipInt, cubeUV_minMipLevel );
+    float faceSize = exp2( mipInt );
+    
+    highp vec2 uv = getUV( direction, face ) * ( faceSize - 2.0 ) + 1.0;
+    
+    if ( face > 2.0 ) {
+        uv.y += faceSize;
+        face -= 3.0;
+    }
+    
+    uv.x += face * faceSize;
+    uv.x += filterInt * 3.0 * cubeUV_minTileSize;
+    uv.y += 4.0 * ( exp2( cubeUV_maxMip ) - faceSize );
+    
+    uv.x *= cubeUV_texelWidth;
+    uv.y *= cubeUV_texelHeight;
+
+    return texture( envMapSampler, uv ).rgb;
+}
+
+#define cubeUV_r0 1.0
+#define cubeUV_m0 - 2.0
+#define cubeUV_r1 0.8
+#define cubeUV_m1 - 1.0
+#define cubeUV_r4 0.4
+#define cubeUV_m4 2.0
+#define cubeUV_r5 0.305
+#define cubeUV_m5 3.0
+#define cubeUV_r6 0.21
+#define cubeUV_m6 4.0
+
+float roughnessToMip( float roughness ) {
+    float mip = 0.0;
+    if ( roughness >= cubeUV_r1 ) {
+        mip = ( cubeUV_r0 - roughness ) * ( cubeUV_m1 - cubeUV_m0 ) / ( cubeUV_r0 - cubeUV_r1 ) + cubeUV_m0;
+    } else if ( roughness >= cubeUV_r4 ) {
+        mip = ( cubeUV_r1 - roughness ) * ( cubeUV_m4 - cubeUV_m1 ) / ( cubeUV_r1 - cubeUV_r4 ) + cubeUV_m1;
+    } else if ( roughness >= cubeUV_r5 ) {
+        mip = ( cubeUV_r4 - roughness ) * ( cubeUV_m5 - cubeUV_m4 ) / ( cubeUV_r4 - cubeUV_r5 ) + cubeUV_m4;
+    } else if ( roughness >= cubeUV_r6 ) {
+        mip = ( cubeUV_r5 - roughness ) * ( cubeUV_m6 - cubeUV_m5 ) / ( cubeUV_r5 - cubeUV_r6 ) + cubeUV_m5;
+    } else {
+        mip = - 2.0 * log2( 1.16 * roughness );
+    }
+    return mip;
+}
+
+vec4 textureCubeUV( sampler2D envMapSampler, vec3 sampleDir, float roughness, float cubeUV_maxMip, float cubeUV_texelWidth, float cubeUV_texelHeight ) {
+    float mip = clamp( roughnessToMip( roughness ), cubeUV_m0, cubeUV_maxMip );
+    float mipF = fract( mip );
+    float mipInt = floor( mip );
+    
+    vec3 color0 = bilinearCubeUV( envMapSampler, sampleDir, mipInt, cubeUV_maxMip, cubeUV_texelWidth, cubeUV_texelHeight );
+    if ( mipF == 0.0 ) {
+        return vec4( color0, 1.0 );
+    } else {
+        vec3 color1 = bilinearCubeUV( envMapSampler, sampleDir, mipInt + 1.0, cubeUV_maxMip, cubeUV_texelWidth, cubeUV_texelHeight );
+        return vec4( mix( color0, color1, mipF ), 1.0 );
+    }
+}
+`;
+
+const PBR_UNIFORMS = `
+uniform vec3 uBaseColor;
+uniform float uRoughness;
+uniform float uMetalness;
+uniform vec3 uAmbientColor;
+uniform float uToneMappingExposure;
+
+uniform vec3 uLightDir;
+uniform vec3 uLightColor;
+
+uniform bool uHasEnvMap;
+uniform sampler2D uEnvMap;
+uniform float uEnvMapIntensity;
+uniform float uCubeUV_maxMip;
+uniform float uCubeUV_texelWidth;
+uniform float uCubeUV_texelHeight;
+
+uniform vec3 uCameraPosition;
+uniform mat4 viewMatrix;
+`;
+
 const FRAGMENT_MAIN = `
 void main() {
-    vec3 normal = normalize(vNormal);
+    // Transform view-space normal to world space
+    mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
+    vec3 normal = normalize(viewMatrixInverse * vNormal);
+    
     vec3 lightDir = normalize(uLightDir);
+    vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
     
-    float NdotL = max(dot(normal, lightDir), 0.0);
-    
-    // Use vertex shadow, recalculate in fragment if interpolated (between 0 and 1)
+    // Shadow calculation
     float shadow = vShadow;
     if (vShadow > 0.001 && vShadow < 0.999) {
         shadow = calcShadow(vGridPos, lightDir);
     }
     
-    float shadowedDiffuse = NdotL * shadow;
-    float lighting = uAmbient + (1.0 - uAmbient) * shadowedDiffuse;
+    // PBR parameters
+    float roughnessFactor = max(uRoughness, 0.0525);
+    float alpha = roughnessFactor * roughnessFactor;
+    float metalnessFactor = uMetalness;
     
-    vec3 color = uBaseColor * lighting;
-    fragColor = vec4(color, 1.0);
+    vec3 f0 = vec3(0.04);
+    f0 = mix(f0, uBaseColor, metalnessFactor);
+    vec3 diffuseReflectance = uBaseColor * (1.0 - metalnessFactor);
+    
+    // Direct lighting (Cook-Torrance BRDF)
+    vec3 H = normalize(lightDir + viewDir);
+    float NdotL = clamp(dot(normal, lightDir), 0.0, 1.0);
+    float NdotV = clamp(abs(dot(normal, viewDir)), 0.0, 1.0);
+    float NdotH = clamp(dot(normal, H), 0.0, 1.0);
+    float VdotH = clamp(dot(viewDir, H), 0.0, 1.0);
+    
+    vec3 reflectedLight = vec3(0.0);
+    vec3 diffuseLight = vec3(0.0);
+    
+    if (NdotL > 0.0) {
+        vec3 F = F_Schlick(VdotH, f0);
+        float D = D_GGX(NdotH, alpha);
+        float V = V_GGX_SmithCorrelated(alpha, NdotV, NdotL);
+        vec3 specular = F * (D * V);
+        vec3 kD = (vec3(1.0) - F) * (1.0 - metalnessFactor);
+        vec3 diffuse = diffuseReflectance * RECIPROCAL_PI;
+        
+        // Apply shadow to direct lighting
+        reflectedLight += specular * uLightColor * NdotL * shadow;
+        diffuseLight += diffuse * uLightColor * NdotL * shadow;
+    }
+    
+    // Indirect lighting
+    vec3 indirectSpecular = vec3(0.0);
+    vec3 indirectDiffuse = diffuseReflectance * uAmbientColor * RECIPROCAL_PI;
+    
+    if (uHasEnvMap) {
+        // Reflection vector
+        vec3 worldReflectVec = reflect(-viewDir, normal);
+        worldReflectVec = normalize(mix(worldReflectVec, normal, roughnessFactor * roughnessFactor));
+        
+        // Sample prefiltered radiance
+        vec3 radiance = textureCubeUV(uEnvMap, worldReflectVec, roughnessFactor, uCubeUV_maxMip, uCubeUV_texelWidth, uCubeUV_texelHeight).rgb;
+        radiance *= uEnvMapIntensity;
+        
+        // Environment diffuse irradiance
+        vec3 iblIrradiance = textureCubeUV(uEnvMap, normal, 1.0, uCubeUV_maxMip, uCubeUV_texelWidth, uCubeUV_texelHeight).rgb;
+        iblIrradiance *= uEnvMapIntensity;
+        
+        // DFG approximation
+        vec2 fab = EnvBRDFApprox(roughnessFactor, NdotV);
+        
+        // Single scattering
+        float specularF90 = 1.0;
+        vec3 FssEss = f0 * fab.x + specularF90 * fab.y;
+        
+        // Multi-scattering compensation
+        float Ess = fab.x + fab.y;
+        float Ems = 1.0 - Ess;
+        vec3 Favg = f0 + (1.0 - f0) * 0.047619;
+        vec3 Fms = FssEss * Favg / (1.0 - Ems * Favg);
+        
+        vec3 singleScattering = FssEss;
+        vec3 multiScattering = Fms * Ems;
+        vec3 totalScattering = singleScattering + multiScattering;
+        
+        vec3 iblDiffuse = diffuseReflectance * (1.0 - max(max(totalScattering.r, totalScattering.g), totalScattering.b));
+        
+        indirectSpecular = radiance * singleScattering + multiScattering * iblIrradiance;
+        indirectDiffuse += iblDiffuse * iblIrradiance;
+    }
+    
+    // In PBR, shadow only affects direct lighting (already applied above)
+    // Indirect lighting (IBL) represents light from all environment directions
+    // and is not blocked by a single directional shadow
+    vec3 outgoingLight = reflectedLight + diffuseLight + indirectDiffuse + indirectSpecular;
+    outgoingLight = ACESFilmicToneMapping(outgoingLight, uToneMappingExposure);
+    // outgoingLight = vec3(shadow);
+    fragColor = linearToSRGB(vec4(outgoingLight, 1.0));
 }
 `;
 
@@ -287,8 +560,8 @@ ${VERTEX_COMMON_UNIFORMS}
 ${SHADER_CONSTANTS}
 ${SAMPLE_SDF_2D}
 ${SAMPLE_SDF_SMOOTH_2D}
-${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, 'sampleSDFSmooth')}
-${NORMAL_FUNCTIONS_TEMPLATE.replace(/SAMPLE_FUNC/g, 'sampleSDFSmooth')}
+${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, "sampleSDFSmooth")}
+${NORMAL_FUNCTIONS_TEMPLATE.replace(/SAMPLE_FUNC/g, "sampleSDFSmooth")}
 ${VERTEX_MAIN}
 `;
 
@@ -304,8 +577,8 @@ uniform vec3 uInvTextureSize;
 ${VERTEX_COMMON_UNIFORMS}
 ${SHADER_CONSTANTS}
 ${SAMPLE_SDF_3D}
-${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, 'sampleSDF')}
-${NORMAL_FUNCTIONS_TEMPLATE.replace(/SAMPLE_FUNC/g, 'sampleSDF')}
+${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, "sampleSDF")}
+${NORMAL_FUNCTIONS_TEMPLATE.replace(/SAMPLE_FUNC/g, "sampleSDF")}
 ${VERTEX_MAIN}
 `;
 
@@ -315,23 +588,22 @@ precision highp float;
 precision highp int;
 precision highp sampler2D;
 
-uniform vec3 uLightDir;
-uniform vec3 uBaseColor;
-uniform float uAmbient;
 uniform sampler2D uSDFTexture;
 uniform vec3 uTextureSize;
 uniform float uSlicesPerRow;
 uniform vec2 uInvAtlasSize;
 ${SHADOW_UNIFORMS}
+${PBR_UNIFORMS}
 
 in vec3 vNormal;
-in vec3 vPos;
+in vec3 vWorldPosition;
 in vec3 vGridPos;
 in float vShadow;
 out vec4 fragColor;
 
+${PBR_FUNCTIONS}
 ${SAMPLE_SDF_SMOOTH_2D}
-${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, 'sampleSDFSmooth')}
+${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, "sampleSDFSmooth")}
 ${FRAGMENT_MAIN}
 `;
 
@@ -340,21 +612,20 @@ precision highp float;
 precision highp int;
 precision highp sampler3D;
 
-uniform vec3 uLightDir;
-uniform vec3 uBaseColor;
-uniform float uAmbient;
 uniform sampler3D utexture3D;
 uniform vec3 uInvTextureSize;
 ${SHADOW_UNIFORMS}
+${PBR_UNIFORMS}
 
 in vec3 vNormal;
-in vec3 vPos;
+in vec3 vWorldPosition;
 in vec3 vGridPos;
 in float vShadow;
 out vec4 fragColor;
 
+${PBR_FUNCTIONS}
 ${SAMPLE_SDF_3D}
-${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, 'sampleSDF')}
+${CALC_SHADOW_TEMPLATE.replace(/SAMPLE_FUNC/g, "sampleSDF")}
 ${FRAGMENT_MAIN}
 `;
 
@@ -441,39 +712,73 @@ class MarchingCubes {
 
     // Shadow and lighting defaults
     this.lightDir = new Vector3(1.0, 1.0, 1.0);
+    this.lightColor = new Vector3(1.0, 1.0, 1.0);
     this.shadowSteps = 32;
     this.shadowSoftness = 8.0;
-    this.shadowBias = 1.0;
+    this.shadowBias = 1;
     this.shadowMaxDist = s * 0.5;
-    this.baseColor = new Vector3(0.0, 0.7, 1.0);
-    this.ambient = 0.15;
+
+    // PBR material properties
+    this.baseColor = new Vector3(0.8, 0.8, 0.8);
+    this.roughness = 0.5;
+    this.metalness = 0.0;
+    this.ambientColor = new Color(0x000000);
+    this.toneMappingExposure = 1.0;
+
+    // Environment map
+    this.envMapIntensity = 1.0;
+    this.cubeUV_maxMip = 8.0;
+    this.cubeUV_texelWidth = 1.0 / 768.0;
+    this.cubeUV_texelHeight = 1.0 / 1024.0;
+
+    // Camera position (updated in onBeforeRender)
+    this.cameraPosition = new Vector3();
+
+    // Common uniforms for both materials
+    const commonUniforms = {
+      uGridSize: { value: gridSize },
+      uHalfGridSize: { value: halfGridSize },
+      uGridSizeInt: { value: [s, s, s] },
+      uIsoLevel: { value: this.isoLevel },
+      uTextureSize: { value: textureSize },
+      uGridToTexScale: { value: gridToTexScale },
+      uInv15: { value: inv15 },
+      uInvGridXY: { value: invGridXY },
+      uInvGridX: { value: invGridX },
+      uNormalMode: { value: this.normalMode },
+      uLightDir: { value: this.lightDir },
+      uLightColor: { value: this.lightColor },
+      uShadowSteps: { value: this.shadowSteps },
+      uShadowSoftness: { value: this.shadowSoftness },
+      uShadowBias: { value: this.shadowBias },
+      uShadowMaxDist: { value: this.shadowMaxDist },
+      uBaseColor: { value: this.baseColor },
+      uRoughness: { value: this.roughness },
+      uMetalness: { value: this.metalness },
+      uAmbientColor: { value: this.ambientColor },
+      uToneMappingExposure: { value: this.toneMappingExposure },
+      uHasEnvMap: { value: false },
+      uEnvMap: { value: null },
+      uEnvMapIntensity: { value: this.envMapIntensity },
+      uCubeUV_maxMip: { value: this.cubeUV_maxMip },
+      uCubeUV_texelWidth: { value: this.cubeUV_texelWidth },
+      uCubeUV_texelHeight: { value: this.cubeUV_texelHeight },
+      uCameraPosition: { value: this.cameraPosition },
+      viewMatrix: { value: new Matrix4() },
+      modelMatrix: { value: new Matrix4() },
+      modelViewMatrix: { value: new Matrix4() },
+      projectionMatrix: { value: new Matrix4() },
+      normalMatrix: { value: new Matrix3() },
+    };
 
     this.material2D = new RawShaderMaterial({
       uniforms: {
+        ...commonUniforms,
         uTriTable: { value: this.triTableTexture },
         uSDFTexture: { value: vr.renderTarget2D.texture },
-        uGridSize: { value: gridSize },
-        uHalfGridSize: { value: halfGridSize },
-        uGridSizeInt: { value: [s, s, s] },
-        uIsoLevel: { value: this.isoLevel },
-        uTextureSize: { value: textureSize },
-        uGridToTexScale: { value: gridToTexScale },
         uSlicesPerRow: { value: vr.slicesPerRow },
         uAtlasRows: { value: vr.atlasRows },
         uInvAtlasSize: { value: invAtlasSize },
-        uInv15: { value: inv15 },
-        uInvGridXY: { value: invGridXY },
-        uInvGridX: { value: invGridX },
-        uNormalMode: { value: this.normalMode },
-        uLightDir: { value: this.lightDir },
-        uShadowSteps: { value: this.shadowSteps },
-        uShadowSoftness: { value: this.shadowSoftness },
-        uShadowBias: { value: this.shadowBias },
-        uShadowMaxDist: { value: this.shadowMaxDist },
-        uBaseColor: { value: this.baseColor },
-        uAmbient: { value: this.ambient },
-        modelViewMatrix: { value: new Matrix4() },
-        projectionMatrix: { value: new Matrix4() },
       },
       vertexShader: vertexShader2D,
       fragmentShader: fragmentShader2D,
@@ -485,29 +790,11 @@ class MarchingCubes {
 
     this.material3D = new RawShaderMaterial({
       uniforms: {
+        ...commonUniforms,
         uTriTable: { value: this.triTableTexture },
         utexture3D: { value: vr.texture3D },
-        uGridSize: { value: gridSize },
-        uHalfGridSize: { value: halfGridSize },
         uInvGridSize: { value: invGridSize },
-        uGridSizeInt: { value: [s, s, s] },
-        uIsoLevel: { value: this.isoLevel },
-        uTextureSize: { value: textureSize },
-        uGridToTexScale: { value: gridToTexScale },
         uInvTextureSize: { value: invTextureSize },
-        uInv15: { value: inv15 },
-        uInvGridXY: { value: invGridXY },
-        uInvGridX: { value: invGridX },
-        uNormalMode: { value: this.normalMode },
-        uLightDir: { value: this.lightDir },
-        uShadowSteps: { value: this.shadowSteps },
-        uShadowSoftness: { value: this.shadowSoftness },
-        uShadowBias: { value: this.shadowBias },
-        uShadowMaxDist: { value: this.shadowMaxDist },
-        uBaseColor: { value: this.baseColor },
-        uAmbient: { value: this.ambient },
-        modelViewMatrix: { value: new Matrix4() },
-        projectionMatrix: { value: new Matrix4() },
       },
       vertexShader: vertexShader3D,
       fragmentShader: fragmentShader3D,
@@ -525,8 +812,12 @@ class MarchingCubes {
     const self = this;
     this.mesh.onBeforeRender = function (renderer, scene, camera) {
       const mat = this.material;
+      mat.uniforms.viewMatrix.value.copy(camera.matrixWorldInverse);
+      mat.uniforms.modelMatrix.value.copy(this.matrixWorld);
       mat.uniforms.modelViewMatrix.value.copy(this.modelViewMatrix);
       mat.uniforms.projectionMatrix.value.copy(camera.projectionMatrix);
+      mat.uniforms.normalMatrix.value.getNormalMatrix(this.modelViewMatrix);
+      mat.uniforms.uCameraPosition.value.copy(camera.position);
     };
   }
 
@@ -644,14 +935,103 @@ class MarchingCubes {
     return this.baseColor.clone();
   }
 
-  setAmbient(ambient) {
-    this.ambient = Math.max(0.0, Math.min(1.0, ambient));
-    this.material2D.uniforms.uAmbient.value = this.ambient;
-    this.material3D.uniforms.uAmbient.value = this.ambient;
+  setAmbientColor(color) {
+    if (color instanceof Color) {
+      this.ambientColor.copy(color);
+    } else if (typeof color === "number") {
+      this.ambientColor.set(color);
+    } else {
+      this.ambientColor.set(color);
+    }
+    this.material2D.uniforms.uAmbientColor.value = this.ambientColor;
+    this.material3D.uniforms.uAmbientColor.value = this.ambientColor;
   }
 
-  getAmbient() {
-    return this.ambient;
+  getAmbientColor() {
+    return this.ambientColor.clone();
+  }
+
+  setRoughness(roughness) {
+    this.roughness = Math.max(0.0, Math.min(1.0, roughness));
+    this.material2D.uniforms.uRoughness.value = this.roughness;
+    this.material3D.uniforms.uRoughness.value = this.roughness;
+  }
+
+  getRoughness() {
+    return this.roughness;
+  }
+
+  setMetalness(metalness) {
+    this.metalness = Math.max(0.0, Math.min(1.0, metalness));
+    this.material2D.uniforms.uMetalness.value = this.metalness;
+    this.material3D.uniforms.uMetalness.value = this.metalness;
+  }
+
+  getMetalness() {
+    return this.metalness;
+  }
+
+  setLightColor(r, g, b) {
+    this.lightColor.set(r, g, b);
+    this.material2D.uniforms.uLightColor.value = this.lightColor;
+    this.material3D.uniforms.uLightColor.value = this.lightColor;
+  }
+
+  getLightColor() {
+    return this.lightColor.clone();
+  }
+
+  setEnvMap(texture) {
+    if (!texture) {
+      this.material2D.uniforms.uHasEnvMap.value = false;
+      this.material3D.uniforms.uHasEnvMap.value = false;
+      return;
+    }
+
+    const height =
+      texture.image?.height || texture.source?.data?.height || 1024;
+    const faceSize = height / 4;
+    const cubeUV_maxMip = Math.log2(faceSize);
+    const cubeUV_texelWidth = 1.0 / (3 * Math.pow(2, cubeUV_maxMip));
+    const cubeUV_texelHeight = 1.0 / (4 * Math.pow(2, cubeUV_maxMip));
+
+    this.cubeUV_maxMip = cubeUV_maxMip;
+    this.cubeUV_texelWidth = cubeUV_texelWidth;
+    this.cubeUV_texelHeight = cubeUV_texelHeight;
+
+    this.material2D.uniforms.uEnvMap.value = texture;
+    this.material2D.uniforms.uCubeUV_maxMip.value = cubeUV_maxMip;
+    this.material2D.uniforms.uCubeUV_texelWidth.value = cubeUV_texelWidth;
+    this.material2D.uniforms.uCubeUV_texelHeight.value = cubeUV_texelHeight;
+    this.material2D.uniforms.uHasEnvMap.value = true;
+
+    this.material3D.uniforms.uEnvMap.value = texture;
+    this.material3D.uniforms.uCubeUV_maxMip.value = cubeUV_maxMip;
+    this.material3D.uniforms.uCubeUV_texelWidth.value = cubeUV_texelWidth;
+    this.material3D.uniforms.uCubeUV_texelHeight.value = cubeUV_texelHeight;
+    this.material3D.uniforms.uHasEnvMap.value = true;
+  }
+
+  setEnvMapIntensity(intensity) {
+    this.envMapIntensity = Math.max(0.0, intensity);
+    this.material2D.uniforms.uEnvMapIntensity.value = this.envMapIntensity;
+    this.material3D.uniforms.uEnvMapIntensity.value = this.envMapIntensity;
+  }
+
+  getEnvMapIntensity() {
+    return this.envMapIntensity;
+  }
+
+  setToneMappingExposure(exposure) {
+    this.toneMappingExposure = Math.max(0.0, exposure);
+    this.material2D.uniforms.uToneMappingExposure.value =
+      this.toneMappingExposure;
+    this.material3D.uniforms.uToneMappingExposure.value =
+      this.toneMappingExposure;
+  }
+
+  getToneMappingExposure() {
+    return this.toneMappingExposure;
   }
 
   getInfo() {
@@ -678,8 +1058,15 @@ class MarchingCubes {
       },
       lighting: {
         lightDir: this.lightDir.toArray(),
+        lightColor: this.lightColor.toArray(),
         baseColor: this.baseColor.toArray(),
         ambient: this.ambient,
+      },
+      pbr: {
+        roughness: this.roughness,
+        metalness: this.metalness,
+        envMapIntensity: this.envMapIntensity,
+        toneMappingExposure: this.toneMappingExposure,
       },
       shadows: {
         steps: this.shadowSteps,
