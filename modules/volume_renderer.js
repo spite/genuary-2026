@@ -63,21 +63,82 @@ float opIntersection(float d1, float d2) {
     return max(d1, d2);
 }
 
+float sdSharpSpikeball(vec3 p, float radius, float time) {
+    float d = length(p) - radius;    
+    float freq = .2;
+    float amp = 5.;
+    float displacement = -abs(sin(p.x * freq) * sin(p.y * freq) * sin(p.z * freq)) * amp;
+    return d + displacement;
+}
+
+float noise(vec3 p) {
+    return fract(sin(dot(p, vec3(12.9898, 78.233, 54.53))) * 43758.5453);
+}
+
+float sdNoiseBall(vec3 p, float radius, float time) {
+    float d = length(p) - radius;
+    
+    float v0 = .25;
+    float v1 = .25;
+    float amplitude = 5.;
+    float displacement = sin(p.x*v0+ time)*sin(p.y*v0+ time)*sin(p.z*v0+ time) + 
+                         sin(p.x*v1 + time)*sin(p.y*v1 + time)*sin(p.z*v1 + time)*0.5;
+                         
+    return d + (displacement * amplitude);
+}
+
+
+float sdSpikeball(vec3 p, float radius, float time) {
+    float d = length(p) - radius;
+    float frequency = .2;
+    float amplitude = 5.;
+    float displacement = sin(p.x * frequency + time) * sin(p.y * frequency + time) * sin(p.z * frequency + time) * amplitude;
+    return d + displacement;
+}
+
+
 float sampleField(vec3 p, vec3 gridSize, float time) {
     vec3 centered = p - gridSize * 0.5;
     
+    // return sdNoiseBall(centered, 20., time);
+
     // float val1 = sdTorus(centered, vec2(15.0 + 5.0 * sin(0.5 * time), 7.5 + 2.5 * cos(0.7 * time)));
     // float val2 = sdTorus(rotateZ(rotateX(centered + vec3(0.0, 0.0, 5.0 * cos(time)), time), time / 2.0), vec2(15.0, 10.0));
     // float val = opSmoothUnion(val1, val2, 1.0);
     
-    float val0 = fDodecahedron(centered, 20.0, 20.0);
-    float val1 = sdTrefoilKnot(rotateZ(centered, uTime * .9), 8.0, 0.4, 64 * 6);
-    float val2 = sdTrefoilKnot(rotateX(centered, uTime), 8.0, 0.4, 64 * 6);
+    // float val0 = fDodecahedron(centered, 20.0, 20.0);
+    // float val1 = sdTrefoilKnot(rotateZ(centered, uTime * .9), 8.0, 0.4, 64 * 6);
+    // float val2 = sdTrefoilKnot(rotateX(centered, uTime), 8.0, 0.4, 64 * 6);
     
-    // float val1 = fDodecahedron(centered, 20.0, 20.0);
-    // float val2 = fIcosahedron(rotateX(centered, time), 25.0, 20.0);
-    float val11 = opSmoothUnion(val1, val2, 2.0);
-    float val = opSmoothSubtraction(val11, val0, 2.0);
+    // // float val1 = fDodecahedron(centered, 20.0, 20.0);
+    // // float val2 = fIcosahedron(rotateX(centered, time), 25.0, 20.0);
+    // float val11 = opSmoothUnion(val1, val2, 2.0);
+    // float val = opSmoothSubtraction(val11, val0, 2.0);
+
+    // val = opUnion(val, val11 + 2.);
+
+    float val = fDodecahedron(centered, 20.0, 20.0);
+
+    vec3 pos = rotateX(centered, time);
+    float r = 27.;
+    for(int i =0; i< 10; i++ ) {
+      float a = float(i) * 1. * 3.14159 / 10.;
+      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time + a), 5.);
+      val = opSmoothSubtraction (s0, val, 2.);
+    }
+
+    float torus = sdTorus(rotateX(centered, time), vec2(20., 7.));
+    val = opSmoothSubtraction(torus, val, 2.);
+
+    float add = 1000.;
+    for(int i =0; i< 10; i++ ) {
+      float a = float(i) * 1. * 3.14159 / 10.;
+      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time + a), 3.);
+      add = opUnion (s0, add);
+    }
+    add = opSmoothUnion(add, torus + 2., 2.);
+    val = opUnion(add, val);
+
     return val;
 }
 `;
