@@ -167,14 +167,14 @@ class VolumeRenderer {
         type: FloatType,
         depthBuffer: false,
         stencilBuffer: false,
-      }
+      },
     );
 
     this.texture3D = new Data3DTexture(
       new Float32Array(this.size * this.size * this.size),
       this.size,
       this.size,
-      this.size
+      this.size,
     );
     this.texture3D.format = RedFormat;
     this.texture3D.type = FloatType;
@@ -251,7 +251,7 @@ class VolumeRenderer {
         offsets[z * 2],
         offsets[z * 2 + 1],
         size,
-        size
+        size,
       );
     }
 
