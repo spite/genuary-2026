@@ -26,7 +26,7 @@ import {
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
-import { MarchingCubes, getMaxGridSize } from "modules/marching_cubes.js";
+import { MarchingCubes, VolumeRenderer, getMaxGridSize } from "modules/marching_cubes.js";
 
 const rainbow = [
   "#ef4444",
@@ -44,10 +44,15 @@ const rainbow = [
 const maxGridSize = getMaxGridSize(renderer);
 console.log(maxGridSize);
 
+// Create VolumeRenderer independently
+const volumeRenderer = new VolumeRenderer(64);
+
+// Pass it to MarchingCubes
 const marchingCubes = new MarchingCubes({
   size: Math.min(64, maxGridSize.maxSize),
   textureSize: 64,
   isoLevel: 0.5,
+  volumeRenderer: volumeRenderer,
 });
 marchingCubes.setTextureMode("atlas");
 marchingCubes.setIsoLevel(0.5);
