@@ -10,22 +10,17 @@ import {
 import GUI from "gui";
 import {
   Scene,
-  Mesh,
   Color,
   Vector3,
   Vector2,
   Matrix4,
   Group,
   HemisphereLight,
-  IcosahedronGeometry,
-  TorusGeometry,
   DirectionalLight,
   Plane,
   Raycaster,
 } from "three";
-import { Material, loadEnvMap } from "modules/material.js";
-import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
-import { GradientLinear } from "modules/gradient.js";
+import { loadEnvMap } from "modules/material.js";
 import { VolumeRenderer } from "modules/volume_renderer.js";
 import { MarchingCubes, getMaxGridSize } from "modules/marching_cubes.js";
 
