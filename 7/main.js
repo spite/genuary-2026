@@ -26,7 +26,8 @@ import {
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
-import { MarchingCubes, VolumeRenderer, getMaxGridSize } from "modules/marching_cubes.js";
+import { VolumeRenderer } from "modules/volume_renderer.js";
+import { MarchingCubes, getMaxGridSize } from "modules/marching_cubes.js";
 
 const rainbow = [
   "#ef4444",
@@ -44,10 +45,9 @@ const rainbow = [
 const maxGridSize = getMaxGridSize(renderer);
 console.log(maxGridSize);
 
-// Create VolumeRenderer independently
 const volumeRenderer = new VolumeRenderer(64);
+volumeRenderer.setTextureMode("atlas");
 
-// Pass it to MarchingCubes
 const marchingCubes = new MarchingCubes({
   size: Math.min(64, maxGridSize.maxSize),
   textureSize: 64,
@@ -73,13 +73,12 @@ marchingCubes.setEnvMapIntensity(0.2);
 
 const defaults = {
   seed: 1337,
-  points: 1,
-  range: [0, 0.25],
-  scale: 1,
   roughness: 0.25,
   metalness: 0.5,
-  offsetAngle: 0,
-  offsetDistance: 0,
+  dodecahedron: true,
+  torus: true,
+  spheres: true,
+  mouseSphere: true,
 };
 
 const params = fromDefaults(defaults);
@@ -88,13 +87,12 @@ const gui = new GUI(
   "7. Boolean algebra",
   document.querySelector("#gui-container"),
 );
-gui.addSlider("Points", params.points, 1, 250, 1);
-gui.addRangeSlider("Range", params.range, 0, 1, 0.01);
-gui.addSlider("Scale", params.scale, 0.1, 2, 0.01);
+gui.addCheckbox("Dodecahedron", params.dodecahedron);
+gui.addCheckbox("Torus", params.torus);
+gui.addCheckbox("Spheres", params.spheres);
+gui.addCheckbox("Mouse sphere", params.mouseSphere);
 gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
 gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
-gui.addSlider("Offset Angle", params.offsetAngle, 0, Math.PI * 2, 0.01);
-gui.addSlider("Offset Distance", params.offsetDistance, 0, 2, 0.01);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
@@ -191,12 +189,19 @@ render(() => {
   controls.update();
 
   updateMousePosition();
-  marchingCubes.setMouse(mouseGridPos.x, mouseGridPos.y, mouseGridPos.z);
+  volumeRenderer.setMouse(mouseGridPos.x, mouseGridPos.y, mouseGridPos.z);
+  volumeRenderer.setShapesEnabled({
+    dodecahedron: params.dodecahedron(),
+    torus: params.torus(),
+    spheres: params.spheres(),
+    mouseSphere: params.mouseSphere(),
+  });
 
   const dt = clock.getDelta();
   if (running) {
     time += dt;
   }
-  marchingCubes.update(renderer, time);
+  // Update volume renderer separately
+  volumeRenderer.update(renderer, time);
   renderer.render(scene, camera);
 });
