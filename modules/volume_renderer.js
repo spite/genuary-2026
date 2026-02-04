@@ -2,6 +2,7 @@ import {
   Data3DTexture,
   Mesh,
   RedFormat,
+  RGFormat,
   FloatType,
   RawShaderMaterial,
   Vector3,
@@ -43,6 +44,14 @@ float opSmoothUnion(float d1, float d2, float k) {
     return min(d1, d2) - h * h * 0.25 / k;
 }
 
+vec2 opSmoothUnion(vec2 d1, vec2 d2, float k) {
+    k *= 4.0;
+    float h = max(k - abs(d1.x - d2.x), 0.0);
+    float t = clamp(0.5 + 0.5 * (d2.x - d1.x) / k, 0.0, 1.0);
+    float colorAttr = mix(d2.y, d1.y, t);
+    return vec2(min(d1.x, d2.x) - h * h * 0.25 / k, colorAttr);
+}
+
 float opSmoothSubtraction(float d1, float d2, float k) {
     return -opSmoothUnion(d1, -d2, k);
 }
@@ -53,6 +62,13 @@ float opSmoothIntersection(float d1, float d2, float k) {
 
 float opUnion(float d1, float d2) {
     return min(d1, d2);
+}
+
+vec2 opUnion(vec2 d1, vec2 d2) {
+    float c = d2.y;
+    if (d1.x < d2.x) c = d1.y;
+    
+    return vec2(min(d1.x, d2.x), c);
 }
 
 float opSubtraction(float d1, float d2) {
@@ -97,46 +113,29 @@ float sdSpikeball(vec3 p, float radius, float time) {
 }
 
 
-float sampleField(vec3 p, vec3 gridSize, float time) {
+vec2 sampleField(vec3 p, vec3 gridSize, float time) {
     vec3 centered = p - gridSize * 0.5;
     
-    // return sdNoiseBall(centered, 20., time);
+    vec2 val = vec2(fDodecahedron(rotateY(centered, time * 1.1), 20.0, 20.0), 0.);
 
-    // float val1 = sdTorus(centered, vec2(15.0 + 5.0 * sin(0.5 * time), 7.5 + 2.5 * cos(0.7 * time)));
-    // float val2 = sdTorus(rotateZ(rotateX(centered + vec3(0.0, 0.0, 5.0 * cos(time)), time), time / 2.0), vec2(15.0, 10.0));
-    // float val = opSmoothUnion(val1, val2, 1.0);
-    
-    // float val0 = fDodecahedron(centered, 20.0, 20.0);
-    // float val1 = sdTrefoilKnot(rotateZ(centered, uTime * .9), 8.0, 0.4, 64 * 6);
-    // float val2 = sdTrefoilKnot(rotateX(centered, uTime), 8.0, 0.4, 64 * 6);
-    
-    // // float val1 = fDodecahedron(centered, 20.0, 20.0);
-    // // float val2 = fIcosahedron(rotateX(centered, time), 25.0, 20.0);
-    // float val11 = opSmoothUnion(val1, val2, 2.0);
-    // float val = opSmoothSubtraction(val11, val0, 2.0);
-
-    // val = opUnion(val, val11 + 2.);
-
-    float val = fDodecahedron(centered, 20.0, 20.0);
-
-    vec3 pos = rotateX(centered, time);
+    vec3 pos = rotateX(centered, time * .9);
     float r = 27.;
     for(int i =0; i< 10; i++ ) {
       float a = float(i) * 1. * 3.14159 / 10.;
-      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time + a), 5.);
-      val = opSmoothSubtraction (s0, val, 2.);
+      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time * .98 + a), 5.);
+      val.x = opSmoothSubtraction(s0, val.x, 2.);
     }
 
-    float torus = sdTorus(rotateX(centered, time), vec2(20., 7.));
-    val = opSmoothSubtraction(torus, val, 2.);
+    float torus = sdTorus(rotateX(centered, time * .95), vec2(20., 6. + 1. * sin(time * 1.2)));
+    val.x = opSmoothSubtraction(torus, val.x, 2.);
 
-    float add = 1000.;
-    for(int i =0; i< 10; i++ ) {
+    vec2 add = vec2(1000., 0.);
+    for(int i=0; i<10; i++ ) {
       float a = float(i) * 1. * 3.14159 / 10.;
-      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time + a), 3.);
-      add = opUnion (s0, add);
+      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time * .98 + a), 3.);
+      add = opUnion(vec2(s0, 1. + float(i) * 1. / 10.), add);
     }
-    add = opSmoothUnion(add, torus + 2., 2.);
+    add = opSmoothUnion(add, vec2(torus + 2., 3.), 1.);
     val = opUnion(add, val);
 
     return val;
@@ -186,9 +185,11 @@ void main() {
     }
     
     vec3 pos = vec3(x, y, float(z));
-    float sdf = sampleField(pos, uGridSize, uTime);
+    vec2 sdf = sampleField(pos, uGridSize, uTime);
+    float d = sdf.x;
+    float c = sdf.y;
     
-    fragColor = vec4(sdf, 0.0, 0.0, 1.0);
+    fragColor = vec4(d, c, 0.0, 1.0);
 }
 `;
 
@@ -224,7 +225,7 @@ class VolumeRenderer {
       {
         minFilter: LinearFilter,
         magFilter: LinearFilter,
-        format: RedFormat,
+        format: RGFormat,
         type: FloatType,
         depthBuffer: false,
         stencilBuffer: false,
@@ -232,12 +233,12 @@ class VolumeRenderer {
     );
 
     this.texture3D = new Data3DTexture(
-      new Float32Array(this.size * this.size * this.size),
+      new Float32Array(this.size * this.size * this.size * 2),
       this.size,
       this.size,
       this.size,
     );
-    this.texture3D.format = RedFormat;
+    this.texture3D.format = RGFormat;
     this.texture3D.type = FloatType;
     this.texture3D.minFilter = LinearFilter;
     this.texture3D.magFilter = LinearFilter;
