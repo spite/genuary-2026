@@ -674,6 +674,8 @@ class MarchingCubes {
     this.textureSize = textureSize || size;
     this.isoLevel = isoLevel;
 
+    // Track if we own the volume renderer (for proper disposal)
+    this._ownsVolumeRenderer = !volumeRenderer;
     this.volumeRenderer =
       volumeRenderer || new VolumeRenderer(this.textureSize);
 
@@ -767,7 +769,7 @@ class MarchingCubes {
     this.cameraPosition = new Vector3();
 
     // Color gradient
-    this.colorGradientCount = 10.0;  // Default: 10 colors in rainbow
+    this.colorGradientCount = 10.0; // Default: 10 colors in rainbow
     this.useColorGradient = true;
     this.initColorGradient();
 
@@ -981,6 +983,43 @@ class MarchingCubes {
 
   getMouse() {
     return this.mouse.clone();
+  }
+
+  /**
+   * Set a new volume renderer (replaces the current one)
+   * @param {VolumeRenderer} volumeRenderer - The new volume renderer
+   * @param {boolean} takeOwnership - If true, MarchingCubes will dispose it on cleanup
+   */
+  setVolumeRenderer(volumeRenderer, takeOwnership = false) {
+    // Dispose old one if we owned it
+    if (this._ownsVolumeRenderer && this.volumeRenderer) {
+      this.volumeRenderer.dispose();
+    }
+
+    this.volumeRenderer = volumeRenderer;
+    this._ownsVolumeRenderer = takeOwnership;
+
+    // Update material textures
+    const vr = this.volumeRenderer;
+    const invAtlasSize = { x: 1.0 / vr.atlasWidth, y: 1.0 / vr.atlasHeight };
+
+    this.material2D.uniforms.uSDFTexture.value = vr.renderTarget2D.texture;
+    this.material2D.uniforms.uSlicesPerRow.value = vr.slicesPerRow;
+    this.material2D.uniforms.uAtlasRows.value = vr.atlasRows;
+    this.material2D.uniforms.uInvAtlasSize.value.set(
+      invAtlasSize.x,
+      invAtlasSize.y,
+    );
+
+    this.material3D.uniforms.utexture3D.value = vr.texture3D;
+  }
+
+  /**
+   * Get the current volume renderer
+   * @returns {VolumeRenderer}
+   */
+  getVolumeRenderer() {
+    return this.volumeRenderer;
   }
 
   update(renderer, time) {
@@ -1245,7 +1284,10 @@ class MarchingCubes {
     this.geometry.dispose();
     this.material2D.dispose();
     this.material3D.dispose();
-    this.volumeRenderer.dispose();
+
+    if (this._ownsVolumeRenderer) {
+      this.volumeRenderer.dispose();
+    }
   }
 }
 
