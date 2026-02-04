@@ -138,6 +138,35 @@ vec2 sampleField(vec3 p, vec3 gridSize, float time) {
     add = opSmoothUnion(add, vec2(torus + 2., 3.), 1.);
     val = opUnion(add, val);
 
+    // Mouse-controlled sphere: uMouse contains grid-centered coordinates directly
+    vec3 mousePos = uMouse;
+    
+    // Calculate distance to grid boundaries and scale radius to avoid clipping
+    float halfGrid = gridSize.x * 0.5;
+    float maxRadius = 8.0;
+    float maxRadiusSolid = 4.0;
+    
+    // Find minimum distance to any boundary (in centered space, bounds are -halfGrid to +halfGrid)
+    float distToBoundary = min(
+        min(halfGrid - abs(mousePos.x), halfGrid - abs(mousePos.y)),
+        halfGrid - abs(mousePos.z)
+    );
+    
+    // Scale radius based on distance to boundary (with some margin)
+    float radiusScale = clamp(distToBoundary / maxRadius, 0.0, 1.0);
+    float sphereRadius = maxRadius * radiusScale;
+    float solidRadius = maxRadiusSolid * radiusScale;
+    
+    // Only render spheres if they have some size
+    if (sphereRadius > 0.1) {
+        float mouseSphere = sdSphere(centered - mousePos, sphereRadius);
+        val.x = opSmoothSubtraction(mouseSphere, val.x, 3.0 * radiusScale);
+    }
+    if (solidRadius > 0.1) {
+        float mouseSphereSolid = sdSphere(centered - mousePos, solidRadius);
+        val = opUnion(val, vec2(mouseSphereSolid, 4.));
+    }
+
     return val;
 }
 `;
@@ -163,6 +192,7 @@ uniform float uTime;
 uniform vec3 uGridSize;
 uniform float uSlicesPerRow;
 uniform float uAtlasRows;
+uniform vec3 uMouse;
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -247,17 +277,28 @@ class VolumeRenderer {
   }
 
   initMaterials() {
+    this.mouse = new Vector3(0, 0, 0);
+
     this.material2D = new RawShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
         uGridSize: { value: new Vector3(this.size, this.size, this.size) },
         uSlicesPerRow: { value: this.slicesPerRow },
         uAtlasRows: { value: this.atlasRows },
+        uMouse: { value: this.mouse },
       },
       vertexShader: vertexShader,
       fragmentShader: fragmentShader2D,
       glslVersion: GLSL3,
     });
+  }
+
+  setMouse(x, y, z = 0) {
+    this.mouse.set(x, y, z);
+  }
+
+  getMouse() {
+    return { x: this.mouse.x, y: this.mouse.y };
   }
 
   initScene() {
