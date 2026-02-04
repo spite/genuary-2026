@@ -13,11 +13,15 @@ import {
   Mesh,
   Color,
   Vector3,
+  Vector2,
+  Matrix4,
   Group,
   HemisphereLight,
   IcosahedronGeometry,
   TorusGeometry,
   DirectionalLight,
+  Plane,
+  Raycaster,
 } from "three";
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
@@ -56,7 +60,6 @@ const envMap = await loadEnvMap(
 );
 marchingCubes.setEnvMap(envMap);
 
-// Set PBR properties
 marchingCubes.setRoughness(0);
 marchingCubes.setMetalness(0);
 const c = new Color(Maf.randomElement(rainbow));
@@ -142,14 +145,53 @@ document.querySelector("#randomize-button")?.addEventListener("click", () => {
   randomize();
 });
 
+const raycaster = new Raycaster();
+const mouseNDC = new Vector2();
+const intersectPlane = new Plane();
+const mouseWorldPos = new Vector3();
+const mouseLocalPos = new Vector3();
+const mouseGridPos = new Vector3(0, 0, 0);
+const cameraDirection = new Vector3();
+const meshWorldPos = new Vector3();
+const inverseMatrixWorld = new Matrix4();
+
+const gridSize = 64;
+
+window.addEventListener("mousemove", (e) => {
+  mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
+});
+
+function updateMousePosition() {
+  camera.getWorldDirection(cameraDirection);
+  marchingCubes.mesh.getWorldPosition(meshWorldPos);
+  intersectPlane.setFromNormalAndCoplanarPoint(cameraDirection, meshWorldPos);
+  raycaster.setFromCamera(mouseNDC, camera);
+
+  const intersected = raycaster.ray.intersectPlane(
+    intersectPlane,
+    mouseWorldPos,
+  );
+
+  if (intersected) {
+    inverseMatrixWorld.copy(marchingCubes.mesh.matrixWorld).invert();
+    mouseLocalPos.copy(mouseWorldPos).applyMatrix4(inverseMatrixWorld);
+
+    mouseGridPos.copy(mouseLocalPos);
+  }
+}
+
 let time = 0;
 render(() => {
   controls.update();
 
+  updateMousePosition();
+  marchingCubes.setMouse(mouseGridPos.x, mouseGridPos.y, mouseGridPos.z);
+
   const dt = clock.getDelta();
   if (running) {
     time += dt;
-    marchingCubes.update(renderer, time);
   }
+  marchingCubes.update(renderer, time);
   renderer.render(scene, camera);
 });
