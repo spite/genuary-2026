@@ -65,16 +65,14 @@ const envMap = await loadEnvMap(
 );
 marchingCubes.setEnvMap(envMap);
 
-marchingCubes.setRoughness(0);
-marchingCubes.setMetalness(0);
 const c = new Color(Maf.randomElement(rainbow));
 marchingCubes.setBaseColor(c.r, c.g, c.b);
 marchingCubes.setEnvMapIntensity(0.2);
 
 const defaults = {
   seed: 1337,
-  roughness: 0.25,
-  metalness: 0.5,
+  roughness: 0.2,
+  metalness: 0,
   dodecahedron: true,
   torus: true,
   spheres: true,
@@ -162,6 +160,9 @@ const inverseMatrixWorld = new Matrix4();
 const gridSize = 64;
 
 window.addEventListener("mousemove", (e) => {
+  if (e.target.closest("#gui-container")) {
+    return;
+  }
   mouseNDC.x = (e.clientX / window.innerWidth) * 2 - 1;
   mouseNDC.y = -(e.clientY / window.innerHeight) * 2 + 1;
 });
@@ -207,7 +208,10 @@ render(() => {
   if (running) {
     time += dt;
   }
-  // Update volume renderer separately
+
+  marchingCubes.setRoughness(params.roughness());
+  marchingCubes.setMetalness(params.metalness());
+
   volumeRenderer.update(renderer, time);
   renderer.render(scene, camera);
 });
