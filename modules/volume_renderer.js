@@ -113,58 +113,70 @@ float sdSpikeball(vec3 p, float radius, float time) {
 }
 
 
-vec2 sampleField(vec3 p, vec3 gridSize, float time) {
+vec2 sampleField(vec3 p, vec3 gridSize, float time, vec4 shapeEnabled) {
     vec3 centered = p - gridSize * 0.5;
     
-    vec2 val = vec2(fDodecahedron(rotateY(centered, time * 1.1), 20.0, 20.0), 0.);
+    vec2 val = vec2(1000.0, 0.);
+    
+    if (shapeEnabled.x > 0.5) {
+        val = vec2(fDodecahedron(rotateY(centered, time * 1.1), 20.0, 20.0), 0.);
+    }
 
     vec3 pos = rotateX(centered, time * .9);
     float r = 27.;
-    for(int i =0; i< 10; i++ ) {
-      float a = float(i) * 1. * 3.14159 / 10.;
-      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time * .98 + a), 5.);
-      val.x = opSmoothSubtraction(s0, val.x, 2.);
+    
+    if (shapeEnabled.z > 0.5 && shapeEnabled.x > 0.5) {
+        for(int i = 0; i < 10; i++) {
+            float a = float(i) * 1. * 3.14159 / 10.;
+            float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time * .98 + a), 5.);
+            val.x = opSmoothSubtraction(s0, val.x, 2.);
+        }
     }
 
     float torus = sdTorus(rotateX(centered, time * .95), vec2(20., 6. + 1. * sin(time * 1.2)));
-    val.x = opSmoothSubtraction(torus, val.x, 2.);
+    if (shapeEnabled.y > 0.5 && shapeEnabled.x > 0.5) {
+        val.x = opSmoothSubtraction(torus, val.x, 2.);
+    }
 
     vec2 add = vec2(1000., 0.);
-    for(int i=0; i<10; i++ ) {
-      float a = float(i) * 1. * 3.14159 / 10.;
-      float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time * .98 + a), 3.);
-      add = opUnion(vec2(s0, 1. + float(i) * 1. / 10.), add);
+    if (shapeEnabled.z > 0.5) {
+        for(int i = 0; i < 10; i++) {
+            float a = float(i) * 1. * 3.14159 / 10.;
+            float s0 = sdSphere(pos + rotateZ(vec3(r,0.,0.), a) * sin(time * .98 + a), 3.);
+            add = opUnion(vec2(s0, 1. + float(i) * 1. / 10.), add);
+        }
     }
-    add = opSmoothUnion(add, vec2(torus + 2., 3.), 1.);
-    val = opUnion(add, val);
+    if (shapeEnabled.y > 0.5) {
+        add = opSmoothUnion(add, vec2(torus + 2., 3.), 1.);
+    }
+    if (shapeEnabled.y > 0.5 || shapeEnabled.z > 0.5) {
+        val = opUnion(add, val);
+    }
 
-    // Mouse-controlled sphere: uMouse contains grid-centered coordinates directly
-    vec3 mousePos = uMouse;
-    
-    // Calculate distance to grid boundaries and scale radius to avoid clipping
-    float halfGrid = gridSize.x * 0.5;
-    float maxRadius = 8.0;
-    float maxRadiusSolid = 4.0;
-    
-    // Find minimum distance to any boundary (in centered space, bounds are -halfGrid to +halfGrid)
-    float distToBoundary = min(
-        min(halfGrid - abs(mousePos.x), halfGrid - abs(mousePos.y)),
-        halfGrid - abs(mousePos.z)
-    );
-    
-    // Scale radius based on distance to boundary (with some margin)
-    float radiusScale = clamp(distToBoundary / maxRadius, 0.0, 1.0);
-    float sphereRadius = maxRadius * radiusScale;
-    float solidRadius = maxRadiusSolid * radiusScale;
-    
-    // Only render spheres if they have some size
-    if (sphereRadius > 0.1) {
-        float mouseSphere = sdSphere(centered - mousePos, sphereRadius);
-        val.x = opSmoothSubtraction(mouseSphere, val.x, 3.0 * radiusScale);
-    }
-    if (solidRadius > 0.1) {
-        float mouseSphereSolid = sdSphere(centered - mousePos, solidRadius);
-        val = opUnion(val, vec2(mouseSphereSolid, 4.));
+    if (shapeEnabled.w > 0.5) {
+        vec3 mousePos = uMouse;
+        
+        float halfGrid = gridSize.x * 0.5;
+        float maxRadius = 8.0;
+        float maxRadiusSolid = 4.0;
+        
+        float distToBoundary = min(
+            min(halfGrid - abs(mousePos.x), halfGrid - abs(mousePos.y)),
+            halfGrid - abs(mousePos.z)
+        );
+        
+        float radiusScale = clamp(distToBoundary / maxRadius, 0.0, 1.0);
+        float sphereRadius = maxRadius * radiusScale;
+        float solidRadius = maxRadiusSolid * radiusScale;
+        
+        if (sphereRadius > 0.1) {
+            float mouseSphere = sdSphere(centered - mousePos, sphereRadius);
+            val.x = opSmoothSubtraction(mouseSphere, val.x, 3.0 * radiusScale);
+        }
+        if (solidRadius > 0.1) {
+            float mouseSphereSolid = sdSphere(centered - mousePos, solidRadius);
+            val = opUnion(val, vec2(mouseSphereSolid, 4.));
+        }
     }
 
     return val;
@@ -193,6 +205,7 @@ uniform vec3 uGridSize;
 uniform float uSlicesPerRow;
 uniform float uAtlasRows;
 uniform vec3 uMouse;
+uniform vec4 uShapeEnabled;
 
 in vec2 vUv;
 out vec4 fragColor;
@@ -215,7 +228,7 @@ void main() {
     }
     
     vec3 pos = vec3(x, y, float(z));
-    vec2 sdf = sampleField(pos, uGridSize, uTime);
+    vec2 sdf = sampleField(pos, uGridSize, uTime, uShapeEnabled);
     float d = sdf.x;
     float c = sdf.y;
     
@@ -278,6 +291,7 @@ class VolumeRenderer {
 
   initMaterials() {
     this.mouse = new Vector3(0, 0, 0);
+    this.shapeEnabled = { x: 1, y: 1, z: 1, w: 1 };
 
     this.material2D = new RawShaderMaterial({
       uniforms: {
@@ -286,6 +300,7 @@ class VolumeRenderer {
         uSlicesPerRow: { value: this.slicesPerRow },
         uAtlasRows: { value: this.atlasRows },
         uMouse: { value: this.mouse },
+        uShapeEnabled: { value: [1, 1, 1, 1] },
       },
       vertexShader: vertexShader,
       fragmentShader: fragmentShader2D,
@@ -298,7 +313,41 @@ class VolumeRenderer {
   }
 
   getMouse() {
-    return { x: this.mouse.x, y: this.mouse.y };
+    return { x: this.mouse.x, y: this.mouse.y, z: this.mouse.z };
+  }
+
+  setShapesEnabled(shapes) {
+    if (shapes.dodecahedron !== undefined) {
+      this.shapeEnabled.x = shapes.dodecahedron ? 1 : 0;
+    }
+    if (shapes.torus !== undefined) {
+      this.shapeEnabled.y = shapes.torus ? 1 : 0;
+    }
+    if (shapes.spheres !== undefined) {
+      this.shapeEnabled.z = shapes.spheres ? 1 : 0;
+    }
+    if (shapes.mouseSphere !== undefined) {
+      this.shapeEnabled.w = shapes.mouseSphere ? 1 : 0;
+    }
+    this.material2D.uniforms.uShapeEnabled.value = [
+      this.shapeEnabled.x,
+      this.shapeEnabled.y,
+      this.shapeEnabled.z,
+      this.shapeEnabled.w,
+    ];
+  }
+
+  getShapesEnabled() {
+    return {
+      dodecahedron: this.shapeEnabled.x > 0.5,
+      torus: this.shapeEnabled.y > 0.5,
+      spheres: this.shapeEnabled.z > 0.5,
+      mouseSphere: this.shapeEnabled.w > 0.5,
+    };
+  }
+
+  setShapeEnabled(shape, enabled) {
+    this.setShapesEnabled({ [shape]: enabled });
   }
 
   initScene() {
