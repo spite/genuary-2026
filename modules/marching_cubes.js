@@ -21,8 +21,6 @@ import {
   BufferAttribute,
 } from "three";
 
-import { VolumeRenderer } from "modules/volume_renderer.js";
-
 const ISO_LEVEL = 0.5;
 
 // Common shader chunks
@@ -670,14 +668,16 @@ class MarchingCubes {
       volumeRenderer,
     } = options;
 
+    if (!volumeRenderer) {
+      throw new Error(
+        "MarchingCubes requires a volumeRenderer. Create one with: new VolumeRenderer(size)",
+      );
+    }
+
     this.size = size;
     this.textureSize = textureSize || size;
     this.isoLevel = isoLevel;
-
-    // Track if we own the volume renderer (for proper disposal)
-    this._ownsVolumeRenderer = !volumeRenderer;
-    this.volumeRenderer =
-      volumeRenderer || new VolumeRenderer(this.textureSize);
+    this.volumeRenderer = volumeRenderer;
 
     this.initTriTable();
     this.initGeometry();
@@ -977,8 +977,6 @@ class MarchingCubes {
 
   setMouse(x, y, z = 0) {
     this.mouse.set(x, y, z);
-    // Also forward to volume renderer so SDF can use it
-    this.volumeRenderer.setMouse(x, y, z);
   }
 
   getMouse() {
@@ -987,17 +985,11 @@ class MarchingCubes {
 
   /**
    * Set a new volume renderer (replaces the current one)
+   * Note: Caller is responsible for disposing the old volume renderer if needed
    * @param {VolumeRenderer} volumeRenderer - The new volume renderer
-   * @param {boolean} takeOwnership - If true, MarchingCubes will dispose it on cleanup
    */
-  setVolumeRenderer(volumeRenderer, takeOwnership = false) {
-    // Dispose old one if we owned it
-    if (this._ownsVolumeRenderer && this.volumeRenderer) {
-      this.volumeRenderer.dispose();
-    }
-
+  setVolumeRenderer(volumeRenderer) {
     this.volumeRenderer = volumeRenderer;
-    this._ownsVolumeRenderer = takeOwnership;
 
     // Update material textures
     const vr = this.volumeRenderer;
@@ -1022,17 +1014,11 @@ class MarchingCubes {
     return this.volumeRenderer;
   }
 
-  update(renderer, time) {
-    this.volumeRenderer.update(renderer, time);
-  }
-
   setTextureMode(mode) {
     if (mode !== "atlas" && mode !== "3d") {
       console.warn(`Invalid texture mode: ${mode}. Use "atlas" or "3d".`);
       return;
     }
-
-    this.volumeRenderer.setTextureMode(mode);
 
     if (mode === "3d") {
       this.mesh.material = this.material3D;
@@ -1041,10 +1027,6 @@ class MarchingCubes {
     }
 
     console.log(`Marching cubes texture mode set to: ${mode}`);
-  }
-
-  getTextureMode() {
-    return this.volumeRenderer.getTextureMode();
   }
 
   setIsoLevel(level) {
@@ -1284,10 +1266,6 @@ class MarchingCubes {
     this.geometry.dispose();
     this.material2D.dispose();
     this.material3D.dispose();
-
-    if (this._ownsVolumeRenderer) {
-      this.volumeRenderer.dispose();
-    }
   }
 }
 
@@ -1384,4 +1362,4 @@ function getMaxGridSize(renderer) {
   };
 }
 
-export { MarchingCubes, VolumeRenderer, getMaxGridSize };
+export { MarchingCubes, getMaxGridSize };
