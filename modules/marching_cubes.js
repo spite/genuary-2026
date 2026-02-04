@@ -401,6 +401,8 @@ uniform mat4 viewMatrix;
 uniform sampler2D uColorGradient;
 uniform float uColorGradientCount;
 uniform bool uUseColorGradient;
+
+uniform vec3 uMouse;
 `;
 
 const FRAGMENT_MAIN = `
@@ -769,6 +771,9 @@ class MarchingCubes {
     this.useColorGradient = true;
     this.initColorGradient();
 
+    // Mouse position in grid-centered coordinates
+    this.mouse = new Vector3(0, 0, 0);
+
     // Common uniforms for both materials
     const commonUniforms = {
       uGridSize: { value: gridSize },
@@ -807,6 +812,7 @@ class MarchingCubes {
       uColorGradient: { value: this.colorGradientTexture },
       uColorGradientCount: { value: this.colorGradientCount },
       uUseColorGradient: { value: this.useColorGradient },
+      uMouse: { value: this.mouse },
     };
 
     this.material2D = new RawShaderMaterial({
@@ -965,6 +971,16 @@ class MarchingCubes {
 
   getUseColorGradient() {
     return this.useColorGradient;
+  }
+
+  setMouse(x, y, z = 0) {
+    this.mouse.set(x, y, z);
+    // Also forward to volume renderer so SDF can use it
+    this.volumeRenderer.setMouse(x, y, z);
+  }
+
+  getMouse() {
+    return this.mouse.clone();
   }
 
   update(renderer, time) {
