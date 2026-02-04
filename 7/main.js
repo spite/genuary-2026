@@ -154,6 +154,7 @@ const intersectPlane = new Plane();
 const mouseWorldPos = new Vector3();
 const mouseLocalPos = new Vector3();
 const mouseGridPos = new Vector3(0, 0, 0);
+const smoothedMouseGridPos = new Vector3(0, 0, 0);
 const cameraDirection = new Vector3();
 const meshWorldPos = new Vector3();
 const inverseMatrixWorld = new Matrix4();
@@ -189,7 +190,12 @@ render(() => {
   controls.update();
 
   updateMousePosition();
-  volumeRenderer.setMouse(mouseGridPos.x, mouseGridPos.y, mouseGridPos.z);
+  smoothedMouseGridPos.lerp(mouseGridPos, 0.1);
+  volumeRenderer.setMouse(
+    smoothedMouseGridPos.x,
+    smoothedMouseGridPos.y,
+    smoothedMouseGridPos.z,
+  );
   volumeRenderer.setShapesEnabled({
     dodecahedron: params.dodecahedron(),
     torus: params.torus(),
