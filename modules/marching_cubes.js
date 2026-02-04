@@ -3,10 +3,14 @@ import {
   BufferGeometry,
   Color,
   NearestFilter,
+  LinearFilter,
+  ClampToEdgeWrapping,
   DataTexture,
   Mesh,
   RedIntegerFormat,
+  RGBAFormat,
   IntType,
+  UnsignedByteType,
   RawShaderMaterial,
   Matrix3,
   Matrix4,
@@ -66,6 +70,7 @@ out vec3 vNormal;
 out vec3 vWorldPosition;
 out vec3 vGridPos;
 out float vShadow;
+out float vSDFId;
 `;
 
 const SHADOW_UNIFORMS = `
@@ -195,6 +200,7 @@ void main() {
     vNormal = normalize(normalMatrix * objectNormal);
     vGridPos = finalPos;
     vShadow = calcShadow(finalPos, normalize(uLightDir));
+    vSDFId = sampleSDF2(finalPos).y;
     
     vec3 centeredPos = finalPos - uHalfGridSize;
     vec4 worldPos = modelMatrix * vec4(centeredPos, 1.0);
@@ -391,6 +397,10 @@ uniform float uCubeUV_texelHeight;
 
 uniform vec3 uCameraPosition;
 uniform mat4 viewMatrix;
+
+uniform sampler2D uColorGradient;
+uniform float uColorGradientCount;
+uniform bool uUseColorGradient;
 `;
 
 const FRAGMENT_MAIN = `
@@ -414,8 +424,14 @@ void main() {
     float metalnessFactor = uMetalness;
     
     vec3 f0 = vec3(0.04);
-    f0 = mix(f0, uBaseColor, metalnessFactor);
-    vec3 diffuseReflectance = uBaseColor * (1.0 - metalnessFactor);
+    vec3 baseColor = uBaseColor;
+    if (uUseColorGradient) {
+        // Map vSDFId 1..N to gradient position 0..1
+        float gradientU = clamp((vSDFId - 1.0) / max(uColorGradientCount - 1.0, 1.0), 0.0, 1.0);
+        baseColor = texture(uColorGradient, vec2(gradientU, 0.5)).rgb;
+    }
+    f0 = mix(f0, baseColor, metalnessFactor);
+    vec3 diffuseReflectance = baseColor * (1.0 - metalnessFactor);
     
     // Direct lighting (Cook-Torrance BRDF)
     vec3 H = normalize(lightDir + viewDir);
@@ -492,7 +508,7 @@ void main() {
 
 // 2D Atlas specific sampling
 const SAMPLE_SDF_2D = `
-float sampleSDF(vec3 gridPos) {
+vec2 sampleSDF2(vec3 gridPos) {
     vec3 pos = gridPos * uGridToTexScale;
     pos = clamp(pos, vec3(0.0), uTextureSize - 1.0);
     
@@ -503,12 +519,16 @@ float sampleSDF(vec3 gridPos) {
     float u = (float(sliceX) * uTextureSize.x + pos.x + 0.5) * uInvAtlasSize.x;
     float v = (float(sliceY) * uTextureSize.y + pos.y + 0.5) * uInvAtlasSize.y;
     
-    return texture(uSDFTexture, vec2(u, v)).r;
+    return texture(uSDFTexture, vec2(u, v)).rg;
+}
+
+float sampleSDF(vec3 gridPos) {
+    return sampleSDF2(gridPos).x;
 }
 `;
 
 const SAMPLE_SDF_SMOOTH_2D = `
-float sampleSDFSmooth(vec3 gridPos) {
+vec2 sampleSDFSmooth2(vec3 gridPos) {
     vec3 pos = gridPos * uGridToTexScale;
     pos = clamp(pos, vec3(0.0), uTextureSize - 1.0);
     
@@ -524,24 +544,32 @@ float sampleSDFSmooth(vec3 gridPos) {
     int sliceY0 = int(zFloorRounded / uSlicesPerRow);
     float u0 = (float(sliceX0) * uTextureSize.x + pos.x + 0.5) * uInvAtlasSize.x;
     float v0 = (float(sliceY0) * uTextureSize.y + pos.y + 0.5) * uInvAtlasSize.y;
-    float val0 = texture(uSDFTexture, vec2(u0, v0)).r;
+    vec2 val0 = texture(uSDFTexture, vec2(u0, v0)).rg;
     
     int sliceX1 = int(mod(zCeilRounded, uSlicesPerRow));
     int sliceY1 = int(zCeilRounded / uSlicesPerRow);
     float u1 = (float(sliceX1) * uTextureSize.x + pos.x + 0.5) * uInvAtlasSize.x;
     float v1 = (float(sliceY1) * uTextureSize.y + pos.y + 0.5) * uInvAtlasSize.y;
-    float val1 = texture(uSDFTexture, vec2(u1, v1)).r;
+    vec2 val1 = texture(uSDFTexture, vec2(u1, v1)).rg;
     
     return mix(val0, val1, zFrac);
+}
+
+float sampleSDFSmooth(vec3 gridPos) {
+    return sampleSDFSmooth2(gridPos).x;
 }
 `;
 
 // 3D Texture specific sampling
 const SAMPLE_SDF_3D = `
-float sampleSDF(vec3 gridPos) {
+vec2 sampleSDF2(vec3 gridPos) {
     vec3 pos = gridPos * uGridToTexScale;
     vec3 uvw = (pos + 0.5) * uInvTextureSize;
-    return texture(utexture3D, uvw).r;
+    return texture(utexture3D, uvw).rg;
+}
+
+float sampleSDF(vec3 gridPos) {
+    return sampleSDF2(gridPos).x;
 }
 `;
 
@@ -599,6 +627,7 @@ in vec3 vNormal;
 in vec3 vWorldPosition;
 in vec3 vGridPos;
 in float vShadow;
+in float vSDFId;
 out vec4 fragColor;
 
 ${PBR_FUNCTIONS}
@@ -621,6 +650,7 @@ in vec3 vNormal;
 in vec3 vWorldPosition;
 in vec3 vGridPos;
 in float vShadow;
+in float vSDFId;
 out vec4 fragColor;
 
 ${PBR_FUNCTIONS}
@@ -734,6 +764,11 @@ class MarchingCubes {
     // Camera position (updated in onBeforeRender)
     this.cameraPosition = new Vector3();
 
+    // Color gradient
+    this.colorGradientCount = 10.0;  // Default: 10 colors in rainbow
+    this.useColorGradient = true;
+    this.initColorGradient();
+
     // Common uniforms for both materials
     const commonUniforms = {
       uGridSize: { value: gridSize },
@@ -769,6 +804,9 @@ class MarchingCubes {
       modelViewMatrix: { value: new Matrix4() },
       projectionMatrix: { value: new Matrix4() },
       normalMatrix: { value: new Matrix3() },
+      uColorGradient: { value: this.colorGradientTexture },
+      uColorGradientCount: { value: this.colorGradientCount },
+      uUseColorGradient: { value: this.useColorGradient },
     };
 
     this.material2D = new RawShaderMaterial({
@@ -819,6 +857,114 @@ class MarchingCubes {
       mat.uniforms.normalMatrix.value.getNormalMatrix(this.modelViewMatrix);
       mat.uniforms.uCameraPosition.value.copy(camera.position);
     };
+  }
+
+  initColorGradient() {
+    // Create a rainbow gradient texture (256 pixels wide)
+    const width = 256;
+    const data = new Uint8Array(width * 4);
+
+    for (let i = 0; i < width; i++) {
+      const t = i / (width - 1);
+      const hue = t;
+      const rgb = this.hslToRgb(hue, 1.0, 0.5);
+      data[i * 4 + 0] = Math.round(rgb[0] * 255);
+      data[i * 4 + 1] = Math.round(rgb[1] * 255);
+      data[i * 4 + 2] = Math.round(rgb[2] * 255);
+      data[i * 4 + 3] = 255;
+    }
+
+    this.colorGradientTexture = new DataTexture(
+      data,
+      width,
+      1,
+      RGBAFormat,
+      UnsignedByteType,
+    );
+    this.colorGradientTexture.minFilter = LinearFilter;
+    this.colorGradientTexture.magFilter = LinearFilter;
+    this.colorGradientTexture.wrapS = ClampToEdgeWrapping;
+    this.colorGradientTexture.wrapT = ClampToEdgeWrapping;
+    this.colorGradientTexture.needsUpdate = true;
+  }
+
+  hslToRgb(h, s, l) {
+    let r, g, b;
+    if (s === 0) {
+      r = g = b = l;
+    } else {
+      const hue2rgb = (p, q, t) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+      };
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+      const p = 2 * l - q;
+      r = hue2rgb(p, q, h + 1 / 3);
+      g = hue2rgb(p, q, h);
+      b = hue2rgb(p, q, h - 1 / 3);
+    }
+    return [r, g, b];
+  }
+
+  setColorGradient(colors) {
+    // Set a custom gradient from an array of Color objects or hex values
+    const width = 256;
+    const data = new Uint8Array(width * 4);
+    const numColors = colors.length;
+
+    for (let i = 0; i < width; i++) {
+      const t = i / (width - 1);
+      const scaledT = t * (numColors - 1);
+      const index = Math.floor(scaledT);
+      const frac = scaledT - index;
+
+      const c1 = colors[Math.min(index, numColors - 1)];
+      const c2 = colors[Math.min(index + 1, numColors - 1)];
+
+      const color1 = c1 instanceof Color ? c1 : new Color(c1);
+      const color2 = c2 instanceof Color ? c2 : new Color(c2);
+
+      data[i * 4 + 0] = Math.round(
+        (color1.r + (color2.r - color1.r) * frac) * 255,
+      );
+      data[i * 4 + 1] = Math.round(
+        (color1.g + (color2.g - color1.g) * frac) * 255,
+      );
+      data[i * 4 + 2] = Math.round(
+        (color1.b + (color2.b - color1.b) * frac) * 255,
+      );
+      data[i * 4 + 3] = 255;
+    }
+
+    this.colorGradientTexture.image.data.set(data);
+    this.colorGradientTexture.needsUpdate = true;
+
+    // Automatically set the count to match the number of colors
+    this.setColorGradientCount(numColors);
+  }
+
+  setColorGradientCount(count) {
+    this.colorGradientCount = count;
+    this.material2D.uniforms.uColorGradientCount.value = count;
+    this.material3D.uniforms.uColorGradientCount.value = count;
+  }
+
+  getColorGradientCount() {
+    return this.colorGradientCount;
+  }
+
+  setUseColorGradient(use) {
+    this.useColorGradient = use;
+    this.material2D.uniforms.uUseColorGradient.value = use;
+    this.material3D.uniforms.uUseColorGradient.value = use;
+  }
+
+  getUseColorGradient() {
+    return this.useColorGradient;
   }
 
   update(renderer, time) {
@@ -1079,6 +1225,7 @@ class MarchingCubes {
 
   dispose() {
     this.triTableTexture.dispose();
+    this.colorGradientTexture.dispose();
     this.geometry.dispose();
     this.material2D.dispose();
     this.material3D.dispose();
