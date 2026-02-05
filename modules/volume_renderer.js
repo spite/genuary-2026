@@ -114,7 +114,7 @@ float sdSpikeball(vec3 p, float radius, float time) {
 
 
 vec2 sampleField(vec3 p, vec3 gridSize, float time, vec4 shapeEnabled) {
-    vec3 centered = p - gridSize * 0.5;
+    vec3 centered = (p - gridSize * 0.5 ) * 64. / gridSize;
     
     vec2 val = vec2(1000.0, 0.);
     
