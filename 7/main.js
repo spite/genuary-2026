@@ -6,6 +6,7 @@ import {
   render,
   running,
   clock,
+  pause,
 } from "common";
 import GUI from "gui";
 import {
@@ -91,7 +92,7 @@ gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
-  "<p>Press R to shuffle the objects.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>",
+  "<p>Press R to toggle wireframe mode.</p><p>Press Space to toggle animation.</p><p>Press Tab to toggle this GUI.</p>",
 );
 gui.show();
 
@@ -139,9 +140,20 @@ window.addEventListener("keydown", (e) => {
     randomize();
   }
 });
-document.querySelector("#randomize-button")?.addEventListener("click", () => {
+const randButton = document.querySelector("#randomize-button");
+randButton?.addEventListener("click", () => {
   randomize();
 });
+
+const lightButton = document.createElement("div");
+lightButton.className = "button action";
+const lightImg = document.createElement("img");
+lightImg.src = "../assets/pause.svg";
+lightButton.append(lightImg);
+lightButton.addEventListener("click", () => {
+  pause();
+});
+randButton.after(lightButton);
 
 const raycaster = new Raycaster();
 const mouseNDC = new Vector2();
