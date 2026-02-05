@@ -55,7 +55,7 @@ function getCamera(fov) {
     fov ? fov : initialFov,
     renderer.domElement.width / renderer.domElement.height,
     0.1,
-    100
+    100,
   );
   cameras.push(camera);
   resize();
@@ -107,9 +107,13 @@ function resize() {
 
 let running = true;
 
+function pause() {
+  running = !running;
+}
+
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space") {
-    running = !running;
+    pause();
   }
   if (e.code === "Tab") {
     document.body.classList.toggle("hide-ui");
@@ -139,4 +143,5 @@ export {
   running,
   clock,
   composer,
+  pause,
 };
