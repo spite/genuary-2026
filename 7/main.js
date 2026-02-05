@@ -40,12 +40,14 @@ const rainbow = [
 const maxGridSize = getMaxGridSize(renderer);
 console.log(maxGridSize);
 
-const volumeRenderer = new VolumeRenderer(64);
+const size = Math.min(64, maxGridSize.maxSize);
+
+const volumeRenderer = new VolumeRenderer(size);
 volumeRenderer.setTextureMode("atlas");
 
 const marchingCubes = new MarchingCubes({
-  size: Math.min(64, maxGridSize.maxSize),
-  textureSize: 64,
+  size,
+  textureSize: size,
   isoLevel: 0.5,
   volumeRenderer: volumeRenderer,
 });
@@ -101,7 +103,7 @@ const scene = new Scene();
 const group = new Group();
 scene.add(group);
 
-marchingCubes.mesh.scale.set(0.1, 0.1, 0.1);
+marchingCubes.mesh.scale.set(0.1, 0.1, 0.1).multiplyScalar(64 / size);
 group.add(marchingCubes.mesh);
 
 const light = new DirectionalLight(0xffffff, 3);
@@ -151,8 +153,6 @@ const smoothedMouseGridPos = new Vector3(0, 0, 0);
 const cameraDirection = new Vector3();
 const meshWorldPos = new Vector3();
 const inverseMatrixWorld = new Matrix4();
-
-const gridSize = 64;
 
 window.addEventListener("mousemove", (e) => {
   if (e.target.closest("#gui-container")) {
