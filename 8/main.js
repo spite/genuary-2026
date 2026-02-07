@@ -111,15 +111,23 @@ document.querySelector("#randomize-button")?.addEventListener("click", () => {
   randomize();
 });
 
+document.addEventListener("keydown", (e) => {
+  if (e.code === "KeyN") {
+    update();
+  }
+});
+
 render(() => {
   controls.update();
 
-  update();
+  if (running) {
+    update();
+  }
 
   const lines = draw();
   if (lines.length) {
     while (group.children.length) {
-      group.children[0].geometry.dispose();
+      group.children[0].geometry?.dispose();
       group.remove(group.children[0]);
     }
     for (const line of lines) {
