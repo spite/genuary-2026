@@ -84,6 +84,7 @@ class Line {
     this.direction.normalize().multiplyScalar(dt);
     this.active = true;
     this.parent = parent;
+    this.color = (Math.random() * 0xffffff) | 0;
   }
 
   grow() {
@@ -220,7 +221,7 @@ function draw() {
       d,
       points[0],
       d.length(),
-      line.active ? 0x00ff00 : 0xff0000,
+      line.active ? 0xffff00 : line.color,
       0.1,
       0.1,
     );
