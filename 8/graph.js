@@ -118,8 +118,7 @@ class Line {
         line.id !== this.id &&
         line.parent !== this.id &&
         this.parent !== line.id &&
-        line.parent !== this.parent &&
-        line.active
+        line.parent !== this.parent
       ) {
         const i = getSegmentIntersection(
           this.start,
@@ -129,14 +128,13 @@ class Line {
           false,
         );
         if (i) {
-          res.push({ point: i, otherLine: line });
+          res.push(i);
         }
       }
     }
     res.sort(
       (a, b) =>
-        this.start.distanceToSquared(a.point) -
-        this.start.distanceToSquared(b.point),
+        this.start.distanceToSquared(a) - this.start.distanceToSquared(b),
     );
     if (res.length > 1) {
       debugger;
