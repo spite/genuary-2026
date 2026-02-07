@@ -4,6 +4,7 @@ import {
   LineBasicMaterial,
   Line as LineMesh,
   BufferGeometry,
+  ArrowHelper,
   Group,
 } from "three";
 
@@ -18,6 +19,14 @@ function getNode(p) {
   const id = nodes.length;
   nodes.push(p);
   return id;
+}
+
+function getRandomDirection() {
+  const res = new Vector3();
+  do {
+    res.set(Maf.randomInRange(-1, 1), 0, Maf.randomInRange(-1, 1));
+  } while (isNaN(res.length()));
+  return res;
 }
 
 function getSegmentIntersection(
@@ -68,13 +77,12 @@ class Line {
   constructor(startNode, direction, parent = null) {
     this.id = lines.length;
     this.startNode = startNode;
-    this.start = new Vector3().copy(nodes[this.startNode]);
-    this.length = 0;
-    this.direction = direction;
-    this.direction.normalize();
-    this.active = true;
-    this.end = new Vector3();
     this.endNode = null;
+    this.start = new Vector3().copy(nodes[this.startNode]);
+    this.end = this.start.clone();
+    this.direction = direction;
+    this.direction.normalize().multiplyScalar(dt);
+    this.active = true;
     this.parent = parent;
   }
 
@@ -82,9 +90,8 @@ class Line {
     if (!this.active) {
       return;
     }
-    this.length += dt;
 
-    this.end.copy(this.direction).multiplyScalar(this.length).add(this.start);
+    this.end.add(this.direction);
 
     const intersects = this.intersects();
     if (intersects.length) {
@@ -92,9 +99,12 @@ class Line {
       this.close(end);
       return;
     }
-    if (this.length > 2 && Math.random() > 0.9) {
+
+    const l = this.end.distanceTo(this.start);
+    if (l > 2 && Math.random() > 0.9) {
       this.split();
     }
+
     if (this.end.length() > 10) {
       const node = getNode(this.end.clone());
       this.close(node);
@@ -108,7 +118,8 @@ class Line {
         line.id !== this.id &&
         line.parent !== this.id &&
         this.parent !== line.id &&
-        line.parent !== this.parent
+        line.parent !== this.parent &&
+        line.active
       ) {
         const i = getSegmentIntersection(
           this.start,
@@ -118,13 +129,14 @@ class Line {
           false,
         );
         if (i) {
-          res.push(i);
+          res.push({ point: i, otherLine: line });
         }
       }
     }
     res.sort(
       (a, b) =>
-        this.start.distanceToSquared(a) - this.start.distanceToSquared(b),
+        this.start.distanceToSquared(a.point) -
+        this.start.distanceToSquared(b.point),
     );
     if (res.length > 1) {
       debugger;
@@ -135,7 +147,7 @@ class Line {
   restart(node) {
     this.startNode = node;
     this.start.copy(nodes[this.startNode]);
-    this.length = 0;
+    this.end.copy(this.start);
   }
 
   close(node) {
@@ -164,13 +176,9 @@ class Line {
 
   getPoints() {
     const points = [];
-    const origin = new Vector3().copy(this.start);
-    const end = new Vector3(0, 0, 0);
-    if (this.active) {
-      end.copy(this.direction).multiplyScalar(this.length).add(origin);
-    } else {
-      end.copy(nodes[this.endNode]);
-    }
+    const origin = this.start.clone();
+    const end = this.end.clone();
+
     points.push(origin);
     points.push(end);
     return points;
@@ -181,11 +189,7 @@ function start(x, y, numLines = 1) {
   const id = getNode(new Vector3(x, 0, y));
 
   for (let i = 0; i < numLines; i++) {
-    const line = new Line(
-      id,
-      new Vector3(Maf.randomInRange(-1, 1), 0, Maf.randomInRange(-1, 1)),
-      null,
-    );
+    const line = new Line(id, getRandomDirection(), null);
     lines.push(line);
   }
 }
@@ -194,6 +198,7 @@ function update() {
   for (const line of lines) {
     line.grow();
   }
+  console.log(lines.length);
 }
 
 const material = new LineBasicMaterial({ color: 0x000000 });
@@ -206,12 +211,22 @@ function draw() {
   const res = [];
   for (const line of lines) {
     const points = line.getPoints();
-    points[0].lerp(points[1], 0.01);
-    points[1].lerp(points[0], 0.01);
-    const geometry = new BufferGeometry().setFromPoints(points);
-    const l = new LineMesh(geometry, material);
-    l.frustumCulled = false;
-    res.push(l);
+    // points[0].lerp(points[1], 0.01);
+    // points[1].lerp(points[0], 0.01);
+    // const geometry = new BufferGeometry().setFromPoints(points);
+    // const l = new LineMesh(geometry, material);
+    // l.frustumCulled = false;
+    // res.push(l);
+    const d = points[1].clone().sub(points[0]);
+    const a = new ArrowHelper(
+      d,
+      points[0],
+      d.length(),
+      line.active ? 0x00ff00 : 0xff0000,
+      0.1,
+      0.1,
+    );
+    res.push(a);
   }
   return res;
 }
