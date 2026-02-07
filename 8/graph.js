@@ -96,8 +96,17 @@ class Line {
 
     const intersects = this.intersects();
     if (intersects.length) {
-      const end = getNode(intersects[0].clone());
+      const end = getNode(intersects[0].point.clone());
       this.close(end);
+
+      const other = lines[intersects[0].id];
+      const closed = new Line(other.startNode, other.direction, other.parent);
+      closed.close(end);
+      lines.push(closed);
+
+      other.startNode = end;
+      other.start.copy(intersects[0].point);
+
       return;
     }
 
@@ -129,13 +138,14 @@ class Line {
           false,
         );
         if (i) {
-          res.push(i);
+          res.push({ id: line.id, point: i });
         }
       }
     }
     res.sort(
       (a, b) =>
-        this.start.distanceToSquared(a) - this.start.distanceToSquared(b),
+        this.start.distanceToSquared(a.point) -
+        this.start.distanceToSquared(b.point),
     );
     if (res.length > 1) {
       debugger;
