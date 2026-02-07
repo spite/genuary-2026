@@ -111,7 +111,7 @@ class Line {
     }
 
     const l = this.end.distanceTo(this.start);
-    if (l > 2 && Math.random() > 0.9) {
+    if (l > 1 && Math.random() > 0.995) {
       this.split();
     }
 
@@ -124,12 +124,7 @@ class Line {
   intersects() {
     const res = [];
     for (const line of lines) {
-      if (
-        line.id !== this.id &&
-        line.parent !== this.id &&
-        this.parent !== line.id &&
-        line.parent !== this.parent
-      ) {
+      if (line.id !== this.id) {
         const i = getSegmentIntersection(
           this.start,
           this.end,
@@ -147,9 +142,6 @@ class Line {
         this.start.distanceToSquared(a.point) -
         this.start.distanceToSquared(b.point),
     );
-    if (res.length > 1) {
-      debugger;
-    }
     return res;
   }
 
@@ -178,9 +170,14 @@ class Line {
     const s = Math.random() > 0.5 ? 1 : -1;
     const dir = this.direction
       .clone()
-      .applyAxisAngle(up, (s * Math.PI) / 2 + Maf.randomInRange(-1, 1));
+      .applyAxisAngle(up, (s * Math.PI) / 2 + Maf.randomInRange(-0.1, 0.1));
     const line = new Line(this.startNode, dir, old.id);
     lines.push(line);
+
+    // if (Math.random() > 0.5) {
+    //   const line = new Line(this.startNode, dir.multiplyScalar(-1), old.id);
+    //   lines.push(line);
+    // }
   }
 
   getPoints() {
@@ -203,11 +200,12 @@ function start(x, y, numLines = 1) {
   }
 }
 
-function update() {
-  for (const line of lines) {
-    line.grow();
+function update(n = 1) {
+  for (let i = 0; i < n; i++) {
+    for (const line of lines) {
+      line.grow();
+    }
   }
-  console.log(lines.length);
 }
 
 const material = new LineBasicMaterial({ color: 0x000000 });
