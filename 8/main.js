@@ -22,9 +22,14 @@ import {
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
-import { start, update, draw } from "./graph.js";
+import { start, update, draw, reset } from "./graph.js";
 
-start(0, 0, 5);
+function init() {
+  for (let i = 0; i < 3; i++) {
+    start(Maf.randomInRange(-2, 2), Maf.randomInRange(-2, 2), 5);
+  }
+}
+init();
 
 const rainbow = [
   "#ef4444",
@@ -70,7 +75,7 @@ gui.addText(
 );
 gui.show();
 
-const color = rainbow[rainbow.length - 1];
+const color = 0; //rainbow[rainbow.length - 1];
 renderer.setClearColor(new Color(color));
 
 const scene = new Scene();
@@ -93,14 +98,18 @@ hemiLight.groundColor.setHSL(0.095, 1, 0.75);
 hemiLight.position.set(0, 50, 0);
 scene.add(hemiLight);
 
-function init() {}
-
-init();
-
-camera.position.set(1, 1, 1).multiplyScalar(10);
+camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
 
-function randomize() {}
+function randomize() {
+  reset({
+    minDistance: Maf.randomInRange(0.5, 2),
+    minAngle: Maf.randomInRange(0, Math.PI / 2),
+    maxAngle: Maf.randomInRange(Math.PI / 2, Math.PI),
+    probability: Maf.randomInRange(0.9, 0.99),
+  });
+  init();
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "KeyR") {
@@ -121,7 +130,7 @@ render(() => {
   controls.update();
 
   if (running) {
-    update();
+    update(10);
   }
 
   const lines = draw();
