@@ -55,7 +55,7 @@ const defaults = {
   probability: 0.9,
   noiseScale: 1,
   showLines: true,
-  showFaces: true,
+  showFaces: !true,
 };
 
 const params = fromDefaults(defaults);
