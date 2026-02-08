@@ -32,13 +32,6 @@ import {
 } from "./graph.js";
 import { effectRAF } from "reactive";
 
-function init() {
-  for (let i = 0; i < 3; i++) {
-    start(Maf.randomInRange(-2, 2), Maf.randomInRange(-2, 2), 5);
-  }
-}
-init();
-
 const rainbow = [
   "#ef4444",
   "#f97316",
@@ -54,6 +47,8 @@ const rainbow = [
 
 const defaults = {
   seed: 1337,
+  seeds: 3,
+  linesPerSeed: 5,
   minDistance: 0.4,
   minTwistDistance: 0.45,
   angle: [1.42, 1.66],
@@ -69,6 +64,8 @@ const gui = new GUI(
   "8. A City. Create a generative metropolis.",
   document.querySelector("#gui-container"),
 );
+gui.addSlider("Seeds", params.seeds, 1, 5, 1);
+gui.addSlider("Lines per seed", params.linesPerSeed, 1, 10, 1);
 gui.addSlider("Min. split distance", params.minDistance, 0.1, 2, 0.01);
 gui.addSlider("Min. twist distance", params.minTwistDistance, 0.1, 2, 0.01);
 gui.addRangeSlider("Split angle range", params.angle, 0, Math.PI, 0.01);
@@ -121,6 +118,18 @@ camera.lookAt(0, 0, 0);
 
 let facesExtracted = false;
 
+function init() {
+  for (let i = 0; i < params.seeds(); i++) {
+    const r = 5;
+    start(
+      Maf.randomInRange(-r, r),
+      Maf.randomInRange(-r, r),
+      params.linesPerSeed(),
+    );
+  }
+}
+init();
+
 effectRAF(() => {
   facesExtracted = false;
   while (groupFaces.children.length) {
@@ -168,7 +177,7 @@ render(() => {
   controls.update();
 
   if (running) {
-    update(10);
+    update();
   }
 
   if (!areActiveLines() && !facesExtracted) {
