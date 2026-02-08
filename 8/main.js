@@ -156,7 +156,7 @@ function randomize() {
     Maf.randomInRange(0, Math.PI / 2),
     Maf.randomInRange(Math.PI / 2, Math.PI),
   ]);
-  params.probability.set(Maf.randomInRange(0.9, 0.99));
+  params.probability.set(Maf.randomInRange(0, 0.8));
   params.noiseScale.set(Maf.randomInRange(0, 10));
 }
 
