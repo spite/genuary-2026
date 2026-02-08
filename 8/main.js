@@ -22,7 +22,14 @@ import {
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
-import { start, update, draw, reset } from "./graph.js";
+import {
+  start,
+  update,
+  draw,
+  reset,
+  areActiveLines,
+  extractFaces,
+} from "./graph.js";
 
 function init() {
   for (let i = 0; i < 3; i++) {
@@ -102,6 +109,7 @@ camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
 
 function randomize() {
+  facesExtracted = false;
   reset({
     minDistance: Maf.randomInRange(0.5, 2),
     minAngle: Maf.randomInRange(0, Math.PI / 2),
@@ -126,11 +134,21 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+let facesExtracted = false;
+
 render(() => {
   controls.update();
 
   if (running) {
     update(10);
+  }
+
+  if (!areActiveLines() && !facesExtracted) {
+    const faces = extractFaces();
+    for (const face of faces) {
+      group.add(face);
+    }
+    facesExtracted = true;
   }
 
   const lines = draw();
