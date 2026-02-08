@@ -52,7 +52,7 @@ const defaults = {
   minDistance: 0.4,
   minTwistDistance: 0.45,
   angle: [1.42, 1.66],
-  probability: 0.9,
+  probability: 0.8,
   noiseScale: 1,
   showLines: true,
   showFaces: !true,
@@ -69,7 +69,7 @@ gui.addSlider("Lines per seed", params.linesPerSeed, 1, 10, 1);
 gui.addSlider("Min. split distance", params.minDistance, 0.1, 2, 0.01);
 gui.addSlider("Min. twist distance", params.minTwistDistance, 0.1, 2, 0.01);
 gui.addRangeSlider("Split angle range", params.angle, 0, Math.PI, 0.01);
-gui.addSlider("Split probability", params.probability, 0.9, 1, 0.001);
+gui.addSlider("Split probability", params.probability, 0, 1, 0.001);
 gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
 gui.addCheckbox("Show lines", params.showLines, (e) => {
   groupLines.visible = e;
