@@ -30,6 +30,7 @@ import {
   areActiveLines,
   extractFaces,
 } from "./graph.js";
+import { effectRAF } from "reactive";
 
 function init() {
   for (let i = 0; i < 3; i++) {
@@ -53,13 +54,13 @@ const rainbow = [
 
 const defaults = {
   seed: 1337,
-  points: 1,
-  range: [0, 0.25],
-  scale: 1,
-  roughness: 0.25,
-  metalness: 0.5,
-  offsetAngle: 0,
-  offsetDistance: 0,
+  minDistance: 0.4,
+  minTwistDistance: 0.45,
+  angle: [1.42, 1.66],
+  probability: 0.9,
+  noiseScale: 1,
+  showLines: true,
+  showFaces: true,
 };
 
 const params = fromDefaults(defaults);
@@ -68,13 +69,19 @@ const gui = new GUI(
   "8. A City. Create a generative metropolis.",
   document.querySelector("#gui-container"),
 );
-gui.addSlider("Points", params.points, 1, 250, 1);
-gui.addRangeSlider("Range", params.range, 0, 1, 0.01);
-gui.addSlider("Scale", params.scale, 0.1, 2, 0.01);
-gui.addSlider("Roughness", params.roughness, 0, 1, 0.01);
-gui.addSlider("Metalness", params.metalness, 0, 1, 0.01);
-gui.addSlider("Offset Angle", params.offsetAngle, 0, Math.PI * 2, 0.01);
-gui.addSlider("Offset Distance", params.offsetDistance, 0, 2, 0.01);
+gui.addSlider("Min. split distance", params.minDistance, 0.1, 2, 0.01);
+gui.addSlider("Min. twist distance", params.minTwistDistance, 0.1, 2, 0.01);
+gui.addRangeSlider("Split angle range", params.angle, 0, Math.PI, 0.01);
+gui.addSlider("Split probability", params.probability, 0.9, 1, 0.001);
+gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
+gui.addCheckbox("Show lines", params.showLines, (e) => {
+  groupLines.visible = e;
+});
+gui.addCheckbox(
+  "Show faces",
+  params.showFaces,
+  (e) => (groupFaces.visible = e),
+);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
@@ -87,6 +94,10 @@ renderer.setClearColor(new Color(color));
 
 const scene = new Scene();
 const group = new Group();
+const groupFaces = new Group();
+const groupLines = new Group();
+group.add(groupFaces);
+group.add(groupLines);
 scene.add(group);
 
 const light = new DirectionalLight(0xffffff, 3);
@@ -108,15 +119,34 @@ scene.add(hemiLight);
 camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
 
-function randomize() {
+let facesExtracted = false;
+
+effectRAF(() => {
   facesExtracted = false;
+  while (groupFaces.children.length) {
+    groupFaces.children[0].geometry?.dispose();
+    groupFaces.remove(groupFaces.children[0]);
+  }
   reset({
-    minDistance: Maf.randomInRange(0.5, 2),
-    minAngle: Maf.randomInRange(0, Math.PI / 2),
-    maxAngle: Maf.randomInRange(Math.PI / 2, Math.PI),
-    probability: Maf.randomInRange(0.9, 0.99),
+    minDistance: params.minDistance(),
+    minTwistDistance: params.minTwistDistance(),
+    minAngle: params.angle()[0],
+    maxAngle: params.angle()[1],
+    probability: params.probability(),
+    noiseScale: params.noiseScale(),
   });
   init();
+});
+
+function randomize() {
+  params.minDistance.set(Maf.randomInRange(0.2, 2));
+  params.minTwistDistance.set(Maf.randomInRange(0.2, 2));
+  params.angle.set([
+    Maf.randomInRange(0, Math.PI / 2),
+    Maf.randomInRange(Math.PI / 2, Math.PI),
+  ]);
+  params.probability.set(Maf.randomInRange(0.9, 0.99));
+  params.noiseScale.set(Maf.randomInRange(0, 10));
 }
 
 window.addEventListener("keydown", (e) => {
@@ -134,8 +164,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-let facesExtracted = false;
-
 render(() => {
   controls.update();
 
@@ -146,19 +174,19 @@ render(() => {
   if (!areActiveLines() && !facesExtracted) {
     const faces = extractFaces();
     for (const face of faces) {
-      group.add(face);
+      groupFaces.add(face);
     }
     facesExtracted = true;
   }
 
   const lines = draw();
   if (lines.length) {
-    while (group.children.length) {
-      group.children[0].geometry?.dispose();
-      group.remove(group.children[0]);
+    while (groupLines.children.length) {
+      groupLines.children[0].geometry?.dispose();
+      groupLines.remove(groupLines.children[0]);
     }
     for (const line of lines) {
-      group.add(line);
+      groupLines.add(line);
     }
   }
 
