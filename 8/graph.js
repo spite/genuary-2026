@@ -17,10 +17,12 @@ import { ImprovedNoise } from "third_party/ImprovedNoise.js";
 
 const noise = new ImprovedNoise();
 
-let minDistance = 0.1;
+let minDistance = 1;
+let minTwistDistance = 1;
 let minAngle = Math.PI / 2 - 1;
 let maxAngle = Math.PI / 2 + 1;
 let probability = 0.995;
+let noiseScale = 1;
 
 const lines = [];
 
@@ -169,6 +171,8 @@ class Line {
       Maf.randomInRange(0.5, 1),
       Maf.randomInRange(0.25, 0.75),
     );
+    this.stepsSinceLastSplit = 0;
+    this.stepsSinceLastTwist = 0;
   }
 
   grow(grid = null) {
@@ -176,6 +180,8 @@ class Line {
       return;
     }
 
+    this.stepsSinceLastSplit++;
+    this.stepsSinceLastTwist++;
     this.end.add(this.direction);
 
     const intersects = this.intersects(grid);
@@ -195,11 +201,14 @@ class Line {
     }
 
     const l = this.end.distanceTo(this.start);
-    if (l > 0.1 && Math.random() > probability) {
+    if (
+      this.stepsSinceLastSplit * dt > minDistance &&
+      Math.random() > probability
+    ) {
       this.split();
     }
 
-    if (l > 1) {
+    if (this.stepsSinceLastTwist * dt > minTwistDistance) {
       this.twist();
     }
 
@@ -279,9 +288,10 @@ class Line {
 
     this.parent = old.id;
     this.restart(newStart);
+    this.stepsSinceLastTwist = 0;
 
     let angle = Math.atan2(this.direction.z, this.direction.x);
-    const s = 1;
+    const s = noiseScale;
     angle += noise.noise(this.end.x * s, this.end.y * s, this.end.z * s);
     this.direction.x = Math.cos(angle);
     this.direction.z = Math.sin(angle);
@@ -297,6 +307,7 @@ class Line {
 
     this.parent = old.id;
     this.restart(newStart);
+    this.stepsSinceLastSplit = 0;
 
     const s = Math.random() > 0.5 ? 1 : -1;
     const angle = Maf.randomInRange(minAngle, maxAngle);
@@ -335,7 +346,7 @@ function start(x, y, numLines = 1) {
 
 function update(n = 1) {
   for (let i = 0; i < n; i++) {
-    const grid = new SpatialGrid(2);
+    const grid = new SpatialGrid(0.5);
     grid.build(lines);
 
     for (const line of lines) {
@@ -346,9 +357,11 @@ function update(n = 1) {
 
 function reset(options) {
   minDistance = options.minDistance;
+  minTwistDistance = options.minTwistDistance;
   minAngle = options.minAngle;
   maxAngle = options.maxAngle;
-  // probability = options.probability;
+  probability = options.probability;
+  noiseScale = options.noiseScale;
 
   lines.length = 0;
 }
@@ -578,7 +591,8 @@ function extractFaces() {
           //   isOuter: false,
           //   //color: getRandomColor(),
           // });
-          faces.push(createShape(offsetPolygon(points, -0.1)));
+          faces.push(createShape(offsetPolygon(points, -0.01)));
+          // faces.push(createShape(points));
         }
       }
     });
