@@ -203,7 +203,7 @@ class Line {
     const l = this.end.distanceTo(this.start);
     if (
       this.stepsSinceLastSplit * dt > minDistance &&
-      Math.random() > probability
+      Math.random() < probability
     ) {
       this.split();
     }
@@ -212,10 +212,10 @@ class Line {
       this.twist();
     }
 
-    // if (this.end.length() > radius) {
-    //   const node = getNode(this.end.clone());
-    //   this.close(node);
-    // }
+    if (this.end.length() > radius) {
+      const node = getNode(this.end.clone());
+      this.close(node);
+    }
   }
 
   intersects(grid = null) {
