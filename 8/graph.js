@@ -6,18 +6,25 @@ import {
   BufferGeometry,
   Color,
   ArrowHelper,
+  Shape,
+  Mesh,
+  ShapeGeometry,
+  MeshBasicMaterial,
+  DoubleSide,
   Group,
 } from "three";
+import { ImprovedNoise } from "third_party/ImprovedNoise.js";
 
-let minDistance = 0.5;
+const noise = new ImprovedNoise();
+
+let minDistance = 0.1;
 let minAngle = Math.PI / 2 - 1;
 let maxAngle = Math.PI / 2 + 1;
-let probability = 0.95;
+let probability = 0.995;
 
 const lines = [];
 
 const nodes = [];
-const edges = [];
 
 const dt = 0.01;
 
@@ -188,8 +195,12 @@ class Line {
     }
 
     const l = this.end.distanceTo(this.start);
-    if (l > minDistance && Math.random() > probability) {
+    if (l > 0.1 && Math.random() > probability) {
       this.split();
+    }
+
+    if (l > 1) {
+      this.twist();
     }
 
     if (this.end.length() > 10) {
@@ -259,6 +270,24 @@ class Line {
     this.active = false;
   }
 
+  twist() {
+    const newStart = getNode(this.end.clone());
+
+    const old = new Line(this.startNode, this.direction.clone(), this.parent);
+    old.close(newStart);
+    lines.push(old);
+
+    this.parent = old.id;
+    this.restart(newStart);
+
+    let angle = Math.atan2(this.direction.z, this.direction.x);
+    const s = 1;
+    angle += noise.noise(this.end.x * s, this.end.y * s, this.end.z * s);
+    this.direction.x = Math.cos(angle);
+    this.direction.z = Math.sin(angle);
+    this.direction.normalize().multiplyScalar(dt);
+  }
+
   split() {
     const newStart = getNode(this.end.clone());
 
@@ -319,7 +348,7 @@ function reset(options) {
   minDistance = options.minDistance;
   minAngle = options.minAngle;
   maxAngle = options.maxAngle;
-  probability = options.probability;
+  // probability = options.probability;
 
   lines.length = 0;
 }
@@ -354,4 +383,208 @@ function draw() {
   return res;
 }
 
-export { start, update, draw, reset };
+function calculateArea(points) {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const j = (i + 1) % points.length;
+    area += points[i].x * points[j].y;
+    area -= points[j].x * points[i].y;
+  }
+  return area / 2;
+}
+
+function getEdges() {
+  const edges = [];
+  for (const line of lines) {
+    edges.push({ id: line.id, from: line.startNode, to: line.endNode });
+  }
+  return edges;
+}
+
+function getVertices() {
+  const vertices = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    vertices.push({ id: i, x: node.x, y: node.z });
+  }
+  return vertices;
+}
+
+function areActiveLines() {
+  return lines.some((l) => l.active);
+}
+
+function createShape(shapePoints) {
+  const shape = new Shape(shapePoints);
+  const geometry = new ShapeGeometry(shape);
+
+  const color = new Color();
+  color.setHSL(
+    Math.random(),
+    Maf.randomInRange(0.5, 1),
+    Maf.randomInRange(0.25, 0.75),
+  );
+
+  const material = new MeshBasicMaterial({
+    color,
+    side: DoubleSide,
+    opacity: 0.5,
+    transparent: true,
+  });
+
+  const mesh = new Mesh(geometry, material);
+  mesh.rotation.x = Math.PI / 2;
+
+  return mesh;
+}
+
+function offsetPolygon(points, distance) {
+  const newPoints = [];
+  const len = points.length;
+
+  for (let i = 0; i < len; i++) {
+    const prevIndex = (i - 1 + len) % len;
+    const nextIndex = (i + 1) % len;
+
+    const pPrev = points[prevIndex];
+    const pCurr = points[i];
+    const pNext = points[nextIndex];
+
+    const v1 = { x: pCurr.x - pPrev.x, y: pCurr.y - pPrev.y };
+    const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
+
+    const l1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y) || 0.00001;
+    const l2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y) || 0.00001;
+
+    const n1 = { x: v1.x / l1, y: v1.y / l1 };
+    const n2 = { x: v2.x / l2, y: v2.y / l2 };
+
+    const perp1 = { x: -n1.y, y: n1.x };
+    const perp2 = { x: -n2.y, y: n2.x };
+
+    const dot = n1.x * n2.x + n1.y * n2.y;
+
+    if (dot > 0.99) {
+      newPoints.push({
+        x: pCurr.x + perp1.x * distance,
+        y: pCurr.y + perp1.y * distance,
+      });
+      continue;
+    }
+
+    const tangent = { x: perp1.x + perp2.x, y: perp1.y + perp2.y };
+
+    const q = 2 / (1 + dot); // Miter scale factor squared-ish
+    const miterScale = Math.sqrt(q);
+
+    const limit = 3.0;
+    const scale = miterScale > limit ? limit : miterScale;
+
+    const tangentLen = Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
+
+    newPoints.push({
+      x: pCurr.x + (tangent.x / tangentLen) * (distance * scale),
+      y: pCurr.y + (tangent.y / tangentLen) * (distance * scale),
+    });
+  }
+  return newPoints;
+}
+
+function extractFaces() {
+  const edges = getEdges();
+  const vertices = getVertices();
+
+  if (vertices.length < 3 || edges.length < 3) return [];
+
+  const adj = new Map();
+  vertices.forEach((v) => adj.set(v.id, []));
+
+  edges.forEach((e) => {
+    const v1 = vertices.find((v) => v.id === e.from);
+    const v2 = vertices.find((v) => v.id === e.to);
+    if (!v1 || !v2) return;
+
+    adj.get(v1.id)?.push({
+      from: v1.id,
+      to: v2.id,
+      angle: Math.atan2(v2.y - v1.y, v2.x - v1.x),
+      visited: false,
+    });
+    adj.get(v2.id)?.push({
+      from: v2.id,
+      to: v1.id,
+      angle: Math.atan2(v1.y - v2.y, v1.x - v2.x),
+      visited: false,
+    });
+  });
+
+  adj.forEach((list) => {
+    list.sort((a, b) => a.angle - b.angle);
+  });
+
+  const faces = [];
+
+  adj.forEach((outEdges) => {
+    outEdges.forEach((startEdge) => {
+      if (startEdge.visited) return;
+
+      const path = [];
+      let currEdge = startEdge;
+
+      while (!currEdge.visited) {
+        currEdge.visited = true;
+        path.push(currEdge.from);
+
+        const nextU = currEdge.to;
+        const nextUEdges = adj.get(nextU) || [];
+        if (nextUEdges.length === 0) break;
+
+        const reverseAngle = Math.atan2(
+          (vertices.find((v) => v.id === currEdge.from)?.y || 0) -
+            (vertices.find((v) => v.id === nextU)?.y || 0),
+          (vertices.find((v) => v.id === currEdge.from)?.x || 0) -
+            (vertices.find((v) => v.id === nextU)?.x || 0),
+        );
+
+        let revIdx = -1;
+        const EPS = 0.00001;
+        for (let i = 0; i < nextUEdges.length; i++) {
+          if (Math.abs(nextUEdges[i].angle - reverseAngle) < EPS) {
+            revIdx = i;
+            break;
+          }
+        }
+
+        if (revIdx === -1) break;
+
+        const nextEdgeIdx = (revIdx + 1) % nextUEdges.length;
+        currEdge = nextUEdges[nextEdgeIdx];
+
+        if (path.length > vertices.length * 2) break;
+      }
+
+      if (path.length >= 3) {
+        const points = path
+          .map((id) => vertices.find((v) => v.id === id))
+          .filter(Boolean);
+        const area = calculateArea(points);
+
+        if (area < -0.01) {
+          // faces.push({
+          //   id: `face-${Math.random().toString(36).substr(2, 9)}`,
+          //   vertexIds: path,
+          //   points,
+          //   area: Math.abs(area),
+          //   isOuter: false,
+          //   //color: getRandomColor(),
+          // });
+          faces.push(createShape(offsetPolygon(points, -0.1)));
+        }
+      }
+    });
+  });
+
+  return faces;
+}
+
+export { start, update, draw, reset, extractFaces, areActiveLines };
