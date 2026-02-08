@@ -23,12 +23,13 @@ let minAngle = Math.PI / 2 - 1;
 let maxAngle = Math.PI / 2 + 1;
 let probability = 0.995;
 let noiseScale = 1;
+let radius = 10;
 
 const lines = [];
 
 const nodes = [];
 
-const dt = 0.01;
+const dt = 0.1;
 
 class SpatialGrid {
   constructor(cellSize = 1) {
@@ -98,7 +99,7 @@ class SpatialGrid {
 
 function getNode(p) {
   const id = nodes.length;
-  nodes.push(p);
+  nodes.push(p.clone());
   return id;
 }
 
@@ -155,7 +156,7 @@ function getSegmentIntersection(
 const up = new Vector3(0, 1, 0);
 
 class Line {
-  constructor(startNode, direction, parent = null) {
+  constructor(startNode, direction) {
     this.id = lines.length;
     this.startNode = startNode;
     this.endNode = null;
@@ -164,7 +165,6 @@ class Line {
     this.direction = direction;
     this.direction.normalize().multiplyScalar(dt);
     this.active = true;
-    this.parent = parent;
     this.color = new Color();
     this.color.setHSL(
       Math.random(),
@@ -190,7 +190,7 @@ class Line {
       this.close(end);
 
       const other = lines[intersects[0].id];
-      const closed = new Line(other.startNode, other.direction, other.parent);
+      const closed = new Line(other.startNode, other.direction);
       closed.close(end);
       lines.push(closed);
 
@@ -212,10 +212,10 @@ class Line {
       this.twist();
     }
 
-    if (this.end.length() > 10) {
-      const node = getNode(this.end.clone());
-      this.close(node);
-    }
+    // if (this.end.length() > radius) {
+    //   const node = getNode(this.end.clone());
+    //   this.close(node);
+    // }
   }
 
   intersects(grid = null) {
@@ -282,17 +282,17 @@ class Line {
   twist() {
     const newStart = getNode(this.end.clone());
 
-    const old = new Line(this.startNode, this.direction.clone(), this.parent);
+    const old = new Line(this.startNode, this.direction.clone());
     old.close(newStart);
     lines.push(old);
 
-    this.parent = old.id;
     this.restart(newStart);
     this.stepsSinceLastTwist = 0;
 
     let angle = Math.atan2(this.direction.z, this.direction.x);
     const s = noiseScale;
-    angle += noise.noise(this.end.x * s, this.end.y * s, this.end.z * s);
+    const n = noise.noise(this.end.x * s, this.end.y * s, this.end.z * s);
+    angle += Maf.map(-1, 1, 0, 0.01 * 2 * Math.PI, n);
     this.direction.x = Math.cos(angle);
     this.direction.z = Math.sin(angle);
     this.direction.normalize().multiplyScalar(dt);
@@ -301,11 +301,10 @@ class Line {
   split() {
     const newStart = getNode(this.end.clone());
 
-    const old = new Line(this.startNode, this.direction.clone(), this.parent);
+    const old = new Line(this.startNode, this.direction.clone());
     old.close(newStart);
     lines.push(old);
 
-    this.parent = old.id;
     this.restart(newStart);
     this.stepsSinceLastSplit = 0;
 
@@ -315,13 +314,13 @@ class Line {
     const line = new Line(this.startNode, dir, old.id);
     lines.push(line);
 
-    if (Math.random() > 0.5) {
-      const dir2 = this.direction
-        .clone()
-        .applyAxisAngle(up, angle * s + Math.PI);
-      const line = new Line(this.startNode, dir2, old.id);
-      lines.push(line);
-    }
+    // if (Math.random() > 0.5) {
+    //   const dir2 = this.direction
+    //     .clone()
+    //     .applyAxisAngle(up, angle * s + Math.PI);
+    //   const line = new Line(this.startNode, dir2, old.id);
+    //   lines.push(line);
+    // }
   }
 
   getPoints() {
@@ -336,6 +335,8 @@ class Line {
 }
 
 function start(x, y, numLines = 1) {
+  addBoundary();
+
   const id = getNode(new Vector3(x, 0, y));
 
   for (let i = 0; i < numLines; i++) {
@@ -366,8 +367,6 @@ function reset(options) {
   lines.length = 0;
 }
 
-const material = new LineBasicMaterial({ color: 0x000000 });
-
 function draw() {
   const active = lines.some((l) => l.active);
   if (!active) {
@@ -376,22 +375,25 @@ function draw() {
   const res = [];
   for (const line of lines) {
     const points = line.getPoints();
-    // points[0].lerp(points[1], 0.01);
-    // points[1].lerp(points[0], 0.01);
-    // const geometry = new BufferGeometry().setFromPoints(points);
-    // const l = new LineMesh(geometry, material);
-    // l.frustumCulled = false;
-    // res.push(l);
-    const d = points[1].clone().sub(points[0]);
-    const a = new ArrowHelper(
-      d,
-      points[0],
-      d.length(),
-      line.active ? 0xffff00 : line.color,
-      0.1,
-      0.1,
-    );
-    res.push(a);
+    if (line.active) {
+      const d = points[1].clone().sub(points[0]);
+      const a = new ArrowHelper(
+        d,
+        points[0],
+        d.length(),
+        line.active ? 0xffff00 : line.color,
+        0.1,
+        0.1,
+      );
+      res.push(a);
+    } else {
+      const geometry = new BufferGeometry().setFromPoints(points);
+      const material = new LineBasicMaterial({ color: line.color });
+
+      const l = new LineMesh(geometry, material);
+      l.frustumCulled = false;
+      res.push(l);
+    }
   }
   return res;
 }
@@ -441,8 +443,9 @@ function createShape(shapePoints) {
   const material = new MeshBasicMaterial({
     color,
     side: DoubleSide,
-    opacity: 0.5,
-    transparent: true,
+    // wireframe: true,
+    // opacity: 0.5,
+    // transparent: true,
   });
 
   const mesh = new Mesh(geometry, material);
@@ -487,7 +490,7 @@ function offsetPolygon(points, distance) {
 
     const tangent = { x: perp1.x + perp2.x, y: perp1.y + perp2.y };
 
-    const q = 2 / (1 + dot); // Miter scale factor squared-ish
+    const q = 2 / (1 + dot);
     const miterScale = Math.sqrt(q);
 
     const limit = 3.0;
@@ -599,6 +602,26 @@ function extractFaces() {
   });
 
   return faces;
+}
+
+function addBoundary() {
+  const r = radius;
+  const origin = getNode(new Vector3(r * Math.cos(0), 0, r * Math.sin(0)));
+  let a = origin;
+  const sides = 36;
+  for (let i = 1; i < sides; i++) {
+    const angle = Maf.map(0, sides, 0, -2 * Math.PI, i);
+    const node = getNode(
+      new Vector3(r * Math.cos(angle), 0, r * Math.sin(angle)),
+    );
+    const line = new Line(a, new Vector3());
+    line.close(node);
+    lines.push(line);
+    a = node;
+  }
+  const line = new Line(a, new Vector3());
+  line.close(origin);
+  lines.push(line);
 }
 
 export { start, update, draw, reset, extractFaces, areActiveLines };
