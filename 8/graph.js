@@ -223,13 +223,13 @@ class Line {
     const line = new Line(this.startNode, dir, old.id);
     lines.push(line);
 
-    // if (Math.random() > 0.5) {
-    //   const dir2 = this.direction
-    //     .clone()
-    //     .applyAxisAngle(up, angle * s + Math.PI);
-    //   const line = new Line(this.startNode, dir2, old.id);
-    //   lines.push(line);
-    // }
+    if (Math.random() > 0.5) {
+      const dir2 = this.direction
+        .clone()
+        .applyAxisAngle(up, angle * s + Math.PI);
+      const line = new Line(this.startNode, dir2, old.id);
+      lines.push(line);
+    }
   }
 
   getPoints() {
@@ -351,7 +351,7 @@ function createShape(shapePoints) {
   const material = new MeshBasicMaterial({
     color,
     side: DoubleSide,
-    // wireframe: true,
+    wireframe: true,
     // opacity: 0.5,
     // transparent: true,
   });
@@ -362,56 +362,248 @@ function createShape(shapePoints) {
   return mesh;
 }
 
-function offsetPolygon(points, distance) {
-  const newPoints = [];
-  const len = points.length;
+function createOutline(points) {
+  const material = new LineBasicMaterial({ color: 0xff00ff });
+  const pts = points.map((v) => new Vector3(v.x, 0, v.y));
+  pts.push(pts[0].clone());
+  const geometry = new BufferGeometry().setFromPoints(pts);
+  const line = new LineMesh(geometry, material);
+  return line;
+}
 
+export function offsetPolygon(indices, vertexPool, offset) {
+  if (!indices || indices.length < 3) return { indices: [], vertices: [] };
+
+  const EMPTY = { indices: [], vertices: [] };
+  const EPS_SQ = 1e-8;
+
+  // 1. Dereference indices to Vector2 points, skip near-duplicate neighbors
+  let path = [];
+  for (let i = 0; i < indices.length; i++) {
+    const v = vertexPool[indices[i]];
+    if (!v) continue;
+    const pt = new Vector2(v.x, v.y);
+    if (path.length > 0 && path[path.length - 1].distanceToSquared(pt) < EPS_SQ)
+      continue;
+    path.push(pt);
+  }
+  // Remove last if it duplicates first
+  if (
+    path.length > 2 &&
+    path[0].distanceToSquared(path[path.length - 1]) < EPS_SQ
+  )
+    path.pop();
+
+  // Also remove collinear points — they cause zero-length normals
+  path = removeCollinear(path);
+
+  if (path.length < 3) return EMPTY;
+
+  // 2. Ensure CCW winding for predictable inward offset direction
+  const origArea = signedArea2D(path);
+  if (Math.abs(origArea) < 1e-6) return EMPTY;
+  const isCCW = origArea > 0;
+  if (!isCCW) path.reverse();
+
+  // 3. Compute miter offset
+  let newPath = miterOffset(path, offset);
+  if (!newPath) return EMPTY;
+
+  // 4. Remove self-intersections (critical for sharp/thin polygons)
+  newPath = cleanSelfIntersections(newPath);
+  if (!newPath || newPath.length < 3) return EMPTY;
+
+  // 5. Discard if area collapsed or winding flipped (thin shape inverted)
+  const newArea = signedArea2D(newPath);
+  if (Math.abs(newArea) < 1e-4) return EMPTY;
+  if (newArea < 0) return EMPTY; // path was normalized to CCW; negative means it flipped
+
+  // 6. Restore original winding
+  if (!isCCW) newPath.reverse();
+
+  return {
+    vertices: newPath,
+    indices: newPath.map((_, i) => i),
+  };
+}
+
+// ---------------------------------------------------------
+// HELPERS
+// ---------------------------------------------------------
+
+function signedArea2D(pts) {
+  let area = 0;
+  for (let i = 0, len = pts.length; i < len; i++) {
+    const j = (i + 1) % len;
+    area += pts[i].x * pts[j].y;
+    area -= pts[j].x * pts[i].y;
+  }
+  return area / 2;
+}
+
+function removeCollinear(pts) {
+  const out = [];
+  const len = pts.length;
   for (let i = 0; i < len; i++) {
-    const prevIndex = (i - 1 + len) % len;
-    const nextIndex = (i + 1) % len;
+    const prev = pts[(i - 1 + len) % len];
+    const curr = pts[i];
+    const next = pts[(i + 1) % len];
+    // Cross product of (curr-prev) x (next-curr)
+    const cross =
+      (curr.x - prev.x) * (next.y - curr.y) -
+      (curr.y - prev.y) * (next.x - curr.x);
+    if (Math.abs(cross) > 1e-8) {
+      out.push(curr);
+    }
+  }
+  return out;
+}
 
-    const pPrev = points[prevIndex];
-    const pCurr = points[i];
-    const pNext = points[nextIndex];
+function miterOffset(points, offset) {
+  const count = points.length;
+  if (count < 3) return null;
 
-    const v1 = { x: pCurr.x - pPrev.x, y: pCurr.y - pPrev.y };
-    const v2 = { x: pNext.x - pCurr.x, y: pNext.y - pCurr.y };
+  // 1. Build offset edges: for each edge, shift both endpoints along inward normal
+  const offsetEdges = [];
+  for (let i = 0; i < count; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % count];
+    const dx = b.x - a.x,
+      dy = b.y - a.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1e-10) {
+      offsetEdges.push(null);
+      continue;
+    }
+    // Inward normal for CCW polygon: rotate edge direction 90° CCW
+    const nx = -dy / len,
+      ny = dx / len;
+    offsetEdges.push({
+      ax: a.x + nx * offset,
+      ay: a.y + ny * offset,
+      bx: b.x + nx * offset,
+      by: b.y + ny * offset,
+    });
+  }
 
-    const l1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y) || 0.00001;
-    const l2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y) || 0.00001;
+  // 2. For each vertex i (between edge i-1 and edge i), intersect the two offset edges
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    const prevEdge = offsetEdges[(i - 1 + count) % count];
+    const currEdge = offsetEdges[i];
 
-    const n1 = { x: v1.x / l1, y: v1.y / l1 };
-    const n2 = { x: v2.x / l2, y: v2.y / l2 };
-
-    const perp1 = { x: -n1.y, y: n1.x };
-    const perp2 = { x: -n2.y, y: n2.x };
-
-    const dot = n1.x * n2.x + n1.y * n2.y;
-
-    if (dot > 0.99) {
-      newPoints.push({
-        x: pCurr.x + perp1.x * distance,
-        y: pCurr.y + perp1.y * distance,
-      });
+    if (!prevEdge || !currEdge) {
+      // Degenerate edge — fall back to simple normal offset from original point
+      const curr = points[i];
+      const next = points[(i + 1) % count];
+      const dx = next.x - curr.x,
+        dy = next.y - curr.y;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      result.push(new Vector2(curr.x + (-dy / len) * offset, curr.y + (dx / len) * offset));
       continue;
     }
 
-    const tangent = { x: perp1.x + perp2.x, y: perp1.y + perp2.y };
+    // Intersect line (prevEdge.a → prevEdge.b) with line (currEdge.a → currEdge.b)
+    const d1x = prevEdge.bx - prevEdge.ax,
+      d1y = prevEdge.by - prevEdge.ay;
+    const d2x = currEdge.bx - currEdge.ax,
+      d2y = currEdge.by - currEdge.ay;
+    const denom = d1x * d2y - d1y * d2x;
 
-    const q = 2 / (1 + dot);
-    const miterScale = Math.sqrt(q);
+    if (Math.abs(denom) < 1e-10) {
+      // Parallel offset edges (collinear original edges) — use midpoint of the two edge endpoints
+      result.push(
+        new Vector2(
+          (prevEdge.bx + currEdge.ax) / 2,
+          (prevEdge.by + currEdge.ay) / 2,
+        ),
+      );
+      continue;
+    }
 
-    const limit = 3.0;
-    const scale = miterScale > limit ? limit : miterScale;
-
-    const tangentLen = Math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
-
-    newPoints.push({
-      x: pCurr.x + (tangent.x / tangentLen) * (distance * scale),
-      y: pCurr.y + (tangent.y / tangentLen) * (distance * scale),
-    });
+    const t =
+      ((currEdge.ax - prevEdge.ax) * d2y - (currEdge.ay - prevEdge.ay) * d2x) /
+      denom;
+    result.push(
+      new Vector2(prevEdge.ax + t * d1x, prevEdge.ay + t * d1y),
+    );
   }
-  return newPoints;
+
+  return result;
+}
+
+function segIntersect2D(ax, ay, bx, by, cx, cy, dx, dy) {
+  const abx = bx - ax,
+    aby = by - ay;
+  const cdx = dx - cx,
+    cdy = dy - cy;
+  const denom = abx * cdy - aby * cdx;
+  if (Math.abs(denom) < 1e-12) return null;
+  const t = ((cx - ax) * cdy - (cy - ay) * cdx) / denom;
+  const u = ((cx - ax) * aby - (cy - ay) * abx) / denom;
+  if (t > 1e-6 && t < 1 - 1e-6 && u > 1e-6 && u < 1 - 1e-6) {
+    return new Vector2(ax + t * abx, ay + t * aby);
+  }
+  return null;
+}
+
+function cleanSelfIntersections(points) {
+  let pts = points;
+  let maxIter = pts.length * 2;
+
+  while (maxIter-- > 0) {
+    const len = pts.length;
+    if (len < 3) return null;
+
+    let found = false;
+
+    for (let i = 0; i < len && !found; i++) {
+      const a = pts[i],
+        b = pts[(i + 1) % len];
+
+      for (let j = i + 2; j < len; j++) {
+        // Skip adjacent edge pair (closing edge vs first edge)
+        if (i === 0 && j === len - 1) continue;
+
+        const c = pts[j],
+          d = pts[(j + 1) % len];
+        const hit = segIntersect2D(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+
+        if (hit) {
+          // Two candidate loops:
+          // loop1: [0..i, hit, j+1..end]  (skip the bulge between i+1..j)
+          // loop2: [i+1..j, hit]           (the bulge itself)
+          // Keep the one with larger area
+          const loop1 = [];
+          for (let k = 0; k <= i; k++) loop1.push(pts[k]);
+          loop1.push(hit);
+          for (let k = j + 1; k < len; k++) loop1.push(pts[k]);
+
+          const loop2 = [hit];
+          for (let k = i + 1; k <= j; k++) loop2.push(pts[k]);
+
+          const a1 = Math.abs(signedArea2D(loop1));
+          const a2 = Math.abs(signedArea2D(loop2));
+
+          pts = a1 >= a2 ? loop1 : loop2;
+          found = true;
+          break;
+        }
+      }
+    }
+
+    if (!found) break;
+  }
+
+  // Final: remove any near-duplicate points that slipped through
+  const cleaned = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].distanceToSquared(cleaned[cleaned.length - 1]) > 1e-8) {
+      cleaned.push(pts[i]);
+    }
+  }
+
+  return cleaned.length >= 3 ? cleaned : null;
 }
 
 function extractFaces() {
@@ -488,22 +680,21 @@ function extractFaces() {
       }
 
       if (path.length >= 3) {
-        const points = path
+        // Compute raw face area to skip the outer boundary face
+        const facePoints = path
           .map((id) => vertices.find((v) => v.id === id))
           .filter(Boolean);
-        const area = calculateArea(points);
+        if (facePoints.length < 3) return;
+        const rawArea = calculateArea(facePoints);
+        // Skip CW-wound faces (outer boundary) and tiny faces
+        if (rawArea >= -0.01) return;
 
-        if (area < -0.01) {
-          // faces.push({
-          //   id: `face-${Math.random().toString(36).substr(2, 9)}`,
-          //   vertexIds: path,
-          //   points,
-          //   area: Math.abs(area),
-          //   isOuter: false,
-          //   //color: getRandomColor(),
-          // });
-          faces.push(createShape(offsetPolygon(points, -0.1)));
-          // faces.push(createShape(points));
+        const pts = path.map((p) => p);
+        const p = offsetPolygon(pts, vertices, 0.1);
+        if (p.vertices.length >= 3) {
+          const f = createOutline(p.vertices);
+          // f.rotation.x = Math.PI / 2;
+          faces.push(f);
         }
       }
     });
