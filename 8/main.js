@@ -29,6 +29,7 @@ import {
   reset,
   areActiveLines,
   extractFaces,
+  addBoundary,
 } from "./graph.js";
 import { effectRAF } from "reactive";
 
@@ -121,6 +122,7 @@ camera.lookAt(0, 0, 0);
 let facesExtracted = false;
 
 function init() {
+  addBoundary();
   for (let i = 0; i < params.seeds(); i++) {
     const r = 5;
     start(
@@ -183,6 +185,17 @@ render(() => {
   }
 
   if (!areActiveLines() && !facesExtracted) {
+    // const lines = draw();
+    // if (lines.length) {
+    //   while (groupLines.children.length) {
+    //     groupLines.children[0].geometry?.dispose();
+    //     groupLines.remove(groupLines.children[0]);
+    //   }
+    //   for (const line of lines) {
+    //     groupLines.add(line);
+    //   }
+    // }
+
     const faces = extractFaces();
     for (const face of faces) {
       groupFaces.add(face);
