@@ -31,72 +31,6 @@ const nodes = [];
 
 const dt = 0.1;
 
-class SpatialGrid {
-  constructor(cellSize = 1) {
-    this.cellSize = cellSize;
-    this.cells = {};
-  }
-
-  _cellKey(ix, iz) {
-    return `${ix},${iz}`;
-  }
-
-  clear() {
-    this.cells = {};
-  }
-
-  insert(line) {
-    const x1 = Math.min(line.start.x, line.end.x);
-    const x2 = Math.max(line.start.x, line.end.x);
-    const z1 = Math.min(line.start.z, line.end.z);
-    const z2 = Math.max(line.start.z, line.end.z);
-
-    const ix0 = Math.floor(x1 / this.cellSize);
-    const ix1 = Math.floor(x2 / this.cellSize);
-    const iz0 = Math.floor(z1 / this.cellSize);
-    const iz1 = Math.floor(z2 / this.cellSize);
-
-    for (let ix = ix0; ix <= ix1; ix++) {
-      for (let iz = iz0; iz <= iz1; iz++) {
-        const key = this._cellKey(ix, iz);
-        if (!this.cells[key]) this.cells[key] = [];
-        this.cells[key].push(line.id);
-      }
-    }
-  }
-
-  build(lines) {
-    this.clear();
-    for (const line of lines) {
-      this.insert(line);
-    }
-  }
-
-  querySegment(start, end) {
-    const x1 = Math.min(start.x, end.x);
-    const x2 = Math.max(start.x, end.x);
-    const z1 = Math.min(start.z, end.z);
-    const z2 = Math.max(start.z, end.z);
-
-    const ix0 = Math.floor(x1 / this.cellSize);
-    const ix1 = Math.floor(x2 / this.cellSize);
-    const iz0 = Math.floor(z1 / this.cellSize);
-    const iz1 = Math.floor(z2 / this.cellSize);
-
-    const set = Object.create(null);
-    for (let ix = ix0; ix <= ix1; ix++) {
-      for (let iz = iz0; iz <= iz1; iz++) {
-        const key = this._cellKey(ix, iz);
-        const arr = this.cells[key];
-        if (!arr) continue;
-        for (const id of arr) set[id] = true;
-      }
-    }
-
-    return Object.keys(set).map((s) => Number(s));
-  }
-}
-
 function getNode(p) {
   const id = nodes.length;
   nodes.push(p.clone());
@@ -175,7 +109,7 @@ class Line {
     this.stepsSinceLastTwist = 0;
   }
 
-  grow(grid = null) {
+  grow() {
     if (!this.active) {
       return;
     }
@@ -184,13 +118,14 @@ class Line {
     this.stepsSinceLastTwist++;
     this.end.add(this.direction);
 
-    const intersects = this.intersects(grid);
+    const intersects = this.intersects();
     if (intersects.length) {
       const end = getNode(intersects[0].point.clone());
       this.close(end);
 
       const other = lines[intersects[0].id];
-      const closed = new Line(other.startNode, other.direction);
+      const closedDir = new Vector3().subVectors(other.end, other.start);
+      const closed = new Line(other.startNode, closedDir);
       closed.close(end);
       lines.push(closed);
 
@@ -200,62 +135,36 @@ class Line {
       return;
     }
 
-    const l = this.end.distanceTo(this.start);
+    if (this.end.length() > radius) {
+      const node = getNode(this.end.clone());
+      this.close(node);
+      return;
+    }
+
     if (
       this.stepsSinceLastSplit * dt > minDistance &&
       Math.random() < probability
     ) {
       this.split();
-    }
-
-    if (this.stepsSinceLastTwist * dt > minTwistDistance) {
+    } else if (this.stepsSinceLastTwist * dt > minTwistDistance) {
       this.twist();
-    }
-
-    if (this.end.length() > radius) {
-      const node = getNode(this.end.clone());
-      this.close(node);
     }
   }
 
-  intersects(grid = null) {
+  intersects() {
     const res = [];
 
-    let candidateIds = null;
-    if (grid) {
-      candidateIds = grid.querySegment(this.start, this.end);
-    }
-
-    if (candidateIds && candidateIds.length) {
-      const seen = Object.create(null);
-      for (const id of candidateIds) {
-        if (id === this.id) continue;
-        if (seen[id]) continue;
-        seen[id] = true;
-        const line = lines[id];
-        const i = getSegmentIntersection(
-          this.start,
-          this.end,
-          line.start,
-          line.end,
-          false,
-        );
-        if (i) res.push({ id: line.id, point: i });
-      }
-    } else {
-      for (const line of lines) {
-        if (line.id !== this.id) {
-          const i = getSegmentIntersection(
-            this.start,
-            this.end,
-            line.start,
-            line.end,
-            false,
-          );
-          if (i) {
-            res.push({ id: line.id, point: i });
-          }
-        }
+    for (const line of lines) {
+      if (line.id === this.id) continue;
+      const i = getSegmentIntersection(
+        this.start,
+        this.end,
+        line.start,
+        line.end,
+        false,
+      );
+      if (i) {
+        res.push({ id: line.id, point: i });
       }
     }
 
@@ -335,8 +244,6 @@ class Line {
 }
 
 function start(x, y, numLines = 1) {
-  addBoundary();
-
   const id = getNode(new Vector3(x, 0, y));
 
   for (let i = 0; i < numLines; i++) {
@@ -347,11 +254,11 @@ function start(x, y, numLines = 1) {
 
 function update(n = 1) {
   for (let i = 0; i < n; i++) {
-    const grid = new SpatialGrid(0.5);
-    grid.build(lines);
-
-    for (const line of lines) {
-      line.grow(grid);
+    // Snapshot the current line count so newly-created lines
+    // (from split/twist/intersection) aren't grown in the same step
+    const count = lines.length;
+    for (let j = 0; j < count; j++) {
+      lines[j].grow();
     }
   }
 }
@@ -365,6 +272,7 @@ function reset(options) {
   noiseScale = options.noiseScale;
 
   lines.length = 0;
+  nodes.length = 0;
 }
 
 function draw() {
@@ -594,7 +502,7 @@ function extractFaces() {
           //   isOuter: false,
           //   //color: getRandomColor(),
           // });
-          faces.push(createShape(offsetPolygon(points, -0.01)));
+          faces.push(createShape(offsetPolygon(points, -0.1)));
           // faces.push(createShape(points));
         }
       }
@@ -611,17 +519,26 @@ function addBoundary() {
   const sides = 36;
   for (let i = 1; i < sides; i++) {
     const angle = Maf.map(0, sides, 0, -2 * Math.PI, i);
-    const node = getNode(
-      new Vector3(r * Math.cos(angle), 0, r * Math.sin(angle)),
-    );
-    const line = new Line(a, new Vector3());
+    const nodePos = new Vector3(r * Math.cos(angle), 0, r * Math.sin(angle));
+    const node = getNode(nodePos);
+    const dir = new Vector3().subVectors(nodePos, nodes[a]);
+    const line = new Line(a, dir);
     line.close(node);
     lines.push(line);
     a = node;
   }
-  const line = new Line(a, new Vector3());
+  const dir = new Vector3().subVectors(nodes[origin], nodes[a]);
+  const line = new Line(a, dir);
   line.close(origin);
   lines.push(line);
 }
 
-export { start, update, draw, reset, extractFaces, areActiveLines };
+export {
+  start,
+  update,
+  draw,
+  reset,
+  extractFaces,
+  areActiveLines,
+  addBoundary,
+};
