@@ -415,8 +415,7 @@ export function offsetPolygon(indices, vertexPool, offset) {
 
   // 5. Discard if area collapsed or winding flipped (thin shape inverted)
   const newArea = signedArea2D(newPath);
-  if (Math.abs(newArea) < 1e-4) return EMPTY;
-  if (newArea < 0) return EMPTY; // path was normalized to CCW; negative means it flipped
+  if (newArea < 1e-4) return EMPTY; // path was CCW (positive); flipped or tiny → discard
 
   // 6. Restore original winding
   if (!isCCW) newPath.reverse();
@@ -499,7 +498,12 @@ function miterOffset(points, offset) {
       const dx = next.x - curr.x,
         dy = next.y - curr.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      result.push(new Vector2(curr.x + (-dy / len) * offset, curr.y + (dx / len) * offset));
+      result.push(
+        new Vector2(
+          curr.x + (-dy / len) * offset,
+          curr.y + (dx / len) * offset,
+        ),
+      );
       continue;
     }
 
@@ -524,9 +528,31 @@ function miterOffset(points, offset) {
     const t =
       ((currEdge.ax - prevEdge.ax) * d2y - (currEdge.ay - prevEdge.ay) * d2x) /
       denom;
-    result.push(
-      new Vector2(prevEdge.ax + t * d1x, prevEdge.ay + t * d1y),
-    );
+    const ix = prevEdge.ax + t * d1x;
+    const iy = prevEdge.ay + t * d1y;
+
+    // Cap: if the intersection is too far from the original vertex, the angle
+    // is very acute and creates a miter spike. Clamp along the direction
+    // from original vertex to intersection point.
+    const curr = points[i];
+    const dx = ix - curr.x,
+      dy = iy - curr.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Get lengths of the two adjacent edges
+    const prev = points[(i - 1 + count) % count];
+    const next = points[(i + 1) % count];
+    const e1 = Math.sqrt((curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2);
+    const e2 = Math.sqrt((next.x - curr.x) ** 2 + (next.y - curr.y) ** 2);
+    const maxDist = Math.min(e1, e2) * 0.45;
+
+    if (dist > maxDist && dist > 1e-10) {
+      // Clamp to maxDist along the same direction
+      const scale = maxDist / dist;
+      result.push(new Vector2(curr.x + dx * scale, curr.y + dy * scale));
+    } else {
+      result.push(new Vector2(ix, iy));
+    }
   }
 
   return result;
@@ -691,10 +717,13 @@ function extractFaces() {
 
         const pts = path.map((p) => p);
         const p = offsetPolygon(pts, vertices, 0.1);
+        const min = 0.5;
         if (p.vertices.length >= 3) {
-          const f = createOutline(p.vertices);
-          // f.rotation.x = Math.PI / 2;
-          faces.push(f);
+          const bb = getBoundingBox(p.vertices);
+          if (bb.width > min && bb.height > min) {
+            const f = createOutline(p.vertices);
+            faces.push(f);
+          }
         }
       }
     });
@@ -724,6 +753,66 @@ function addBoundary() {
   lines.push(line);
 }
 
+function getBoundingBox(points) {
+  if (points.length < 2) {
+    const p = points[0] || { x: 0, y: 0 };
+    return { cx: p.x, cy: p.y, width: 0, height: 0, angle: 0 };
+  }
+
+  let bestArea = Infinity;
+  let best = null;
+
+  // Test OBB aligned to each edge of the polygon
+  const len = points.length;
+  for (let i = 0; i < len; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % len];
+    const ex = b.x - a.x,
+      ey = b.y - a.y;
+    const el = Math.sqrt(ex * ex + ey * ey);
+    if (el < 1e-10) continue;
+
+    // Unit edge direction and perpendicular
+    const ux = ex / el,
+      uy = ey / el;
+    const vx = -uy,
+      vy = ux;
+
+    // Project all points onto this frame
+    let minU = Infinity,
+      maxU = -Infinity,
+      minV = Infinity,
+      maxV = -Infinity;
+    for (const p of points) {
+      const u = p.x * ux + p.y * uy;
+      const v = p.x * vx + p.y * vy;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+
+    const w = maxU - minU;
+    const h = maxV - minV;
+    const area = w * h;
+
+    if (area < bestArea) {
+      bestArea = area;
+      const midU = (minU + maxU) / 2;
+      const midV = (minV + maxV) / 2;
+      best = {
+        cx: midU * ux + midV * vx,
+        cy: midU * uy + midV * vy,
+        width: w,
+        height: h,
+        angle: Math.atan2(uy, ux),
+      };
+    }
+  }
+
+  return best;
+}
+
 export {
   start,
   update,
@@ -732,4 +821,5 @@ export {
   extractFaces,
   areActiveLines,
   addBoundary,
+  getBoundingBox,
 };
