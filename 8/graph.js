@@ -430,7 +430,7 @@ export function offsetPolygon(indices, vertexPool, offset) {
     const edgeLen = Math.sqrt(edx * edx + edy * edy);
     if (edgeLen < 1e-10) continue;
     // Signed distance from centroid to edge (positive = inward for CCW)
-    const dist = ((cx - a.x) * (-edy) + (cy - a.y) * edx) / edgeLen;
+    const dist = ((cx - a.x) * -edy + (cy - a.y) * edx) / edgeLen;
     if (offset >= dist) return EMPTY;
   }
 
@@ -438,18 +438,23 @@ export function offsetPolygon(indices, vertexPool, offset) {
   let newPath = miterOffset(path, offset);
   if (!newPath) return EMPTY;
 
-  // 6. Remove self-intersections (critical for sharp/thin polygons)
+  // 6. Remove spike vertices — vertices with very acute angles are miter
+  // artifacts where the line-line intersection shot out far.
+  newPath = removeSpikes(newPath);
+  if (!newPath || newPath.length < 3) return EMPTY;
+
+  // 7. Remove self-intersections (critical for sharp/thin polygons)
   newPath = cleanSelfIntersections(newPath);
   if (!newPath || newPath.length < 3) return EMPTY;
 
-  // 7. Final validation:
+  // 8. Final validation:
   //    - flipped (negative area = reversed winding)
   //    - grew instead of shrunk (impossible for valid inward offset)
   const newArea = signedArea2D(newPath);
   if (newArea <= 0) return EMPTY;
   if (newArea > absOrigArea) return EMPTY;
 
-  // 8. Restore original winding
+  // 9. Restore original winding
   if (!isCCW) newPath.reverse();
 
   return {
@@ -461,6 +466,48 @@ export function offsetPolygon(indices, vertexPool, offset) {
 // ---------------------------------------------------------
 // HELPERS
 // ---------------------------------------------------------
+
+function removeSpikes(pts) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (pts.length < 4) break; // can't remove from a triangle
+    const filtered = [];
+    const len = pts.length;
+    for (let i = 0; i < len; i++) {
+      const prev = pts[(i - 1 + len) % len];
+      const curr = pts[i];
+      const next = pts[(i + 1) % len];
+
+      // Vectors from curr to neighbors
+      const ax = prev.x - curr.x,
+        ay = prev.y - curr.y;
+      const bx = next.x - curr.x,
+        by = next.y - curr.y;
+      const la = Math.sqrt(ax * ax + ay * ay);
+      const lb = Math.sqrt(bx * bx + by * by);
+
+      if (la < 1e-10 || lb < 1e-10) {
+        // Degenerate zero-length edge, skip this vertex
+        changed = true;
+        continue;
+      }
+
+      // Cosine of angle at curr (dot product of unit vectors)
+      const cosAngle = (ax * bx + ay * by) / (la * lb);
+
+      // If angle < ~20° (cos > 0.94), it's a spike
+      if (cosAngle > 0.94) {
+        changed = true;
+        continue;
+      }
+
+      filtered.push(curr);
+    }
+    pts = filtered;
+  }
+  return pts.length >= 3 ? pts : null;
+}
 
 function signedArea2D(pts) {
   let area = 0;
@@ -560,9 +607,7 @@ function miterOffset(points, offset) {
     const t =
       ((currEdge.ax - prevEdge.ax) * d2y - (currEdge.ay - prevEdge.ay) * d2x) /
       denom;
-    result.push(
-      new Vector2(prevEdge.ax + t * d1x, prevEdge.ay + t * d1y),
-    );
+    result.push(new Vector2(prevEdge.ax + t * d1x, prevEdge.ay + t * d1y));
   }
 
   return result;
@@ -739,7 +784,7 @@ function extractFaces() {
 
         const pts = path.map((p) => p);
         const p = offsetPolygon(pts, vertices, 0.1);
-        const min = 0.1;
+        const min = 0;
         if (p.vertices.length >= 3) {
           const bb = getBoundingBox(p.vertices);
           if (bb.width > min && bb.height > min) {
