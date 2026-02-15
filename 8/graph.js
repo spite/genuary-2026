@@ -404,20 +404,52 @@ export function offsetPolygon(indices, vertexPool, offset) {
   if (Math.abs(origArea) < 1e-6) return EMPTY;
   const isCCW = origArea > 0;
   if (!isCCW) path.reverse();
+  const absOrigArea = Math.abs(origArea);
 
-  // 3. Compute miter offset
+  // 3. Pre-check: can this polygon survive the offset?
+  // The inradius (2*area/perimeter) is the max inset before collapse.
+  // If offset >= inradius, the shape will flip/degenerate.
+  let perimeter = 0;
+  for (let i = 0; i < path.length; i++) {
+    const a = path[i],
+      b = path[(i + 1) % path.length];
+    perimeter += Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+  }
+  const inradius = (2 * absOrigArea) / perimeter;
+  if (offset >= inradius) return EMPTY;
+
+  // 4. Also check per-edge: if offset >= distance from centroid to any edge,
+  // the shape is too thin in that direction and will flip there.
+  const cx = path.reduce((s, p) => s + p.x, 0) / path.length;
+  const cy = path.reduce((s, p) => s + p.y, 0) / path.length;
+  for (let i = 0; i < path.length; i++) {
+    const a = path[i],
+      b = path[(i + 1) % path.length];
+    const edx = b.x - a.x,
+      edy = b.y - a.y;
+    const edgeLen = Math.sqrt(edx * edx + edy * edy);
+    if (edgeLen < 1e-10) continue;
+    // Signed distance from centroid to edge (positive = inward for CCW)
+    const dist = ((cx - a.x) * (-edy) + (cy - a.y) * edx) / edgeLen;
+    if (offset >= dist) return EMPTY;
+  }
+
+  // 5. Compute miter offset
   let newPath = miterOffset(path, offset);
   if (!newPath) return EMPTY;
 
-  // 4. Remove self-intersections (critical for sharp/thin polygons)
+  // 6. Remove self-intersections (critical for sharp/thin polygons)
   newPath = cleanSelfIntersections(newPath);
   if (!newPath || newPath.length < 3) return EMPTY;
 
-  // 5. Discard if area collapsed or winding flipped (thin shape inverted)
+  // 7. Final validation:
+  //    - flipped (negative area = reversed winding)
+  //    - grew instead of shrunk (impossible for valid inward offset)
   const newArea = signedArea2D(newPath);
-  if (newArea < 1e-4) return EMPTY; // path was CCW (positive); flipped or tiny → discard
+  if (newArea <= 0) return EMPTY;
+  if (newArea > absOrigArea) return EMPTY;
 
-  // 6. Restore original winding
+  // 8. Restore original winding
   if (!isCCW) newPath.reverse();
 
   return {
@@ -528,31 +560,9 @@ function miterOffset(points, offset) {
     const t =
       ((currEdge.ax - prevEdge.ax) * d2y - (currEdge.ay - prevEdge.ay) * d2x) /
       denom;
-    const ix = prevEdge.ax + t * d1x;
-    const iy = prevEdge.ay + t * d1y;
-
-    // Cap: if the intersection is too far from the original vertex, the angle
-    // is very acute and creates a miter spike. Clamp along the direction
-    // from original vertex to intersection point.
-    const curr = points[i];
-    const dx = ix - curr.x,
-      dy = iy - curr.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    // Get lengths of the two adjacent edges
-    const prev = points[(i - 1 + count) % count];
-    const next = points[(i + 1) % count];
-    const e1 = Math.sqrt((curr.x - prev.x) ** 2 + (curr.y - prev.y) ** 2);
-    const e2 = Math.sqrt((next.x - curr.x) ** 2 + (next.y - curr.y) ** 2);
-    const maxDist = Math.min(e1, e2) * 0.45;
-
-    if (dist > maxDist && dist > 1e-10) {
-      // Clamp to maxDist along the same direction
-      const scale = maxDist / dist;
-      result.push(new Vector2(curr.x + dx * scale, curr.y + dy * scale));
-    } else {
-      result.push(new Vector2(ix, iy));
-    }
+    result.push(
+      new Vector2(prevEdge.ax + t * d1x, prevEdge.ay + t * d1y),
+    );
   }
 
   return result;
@@ -599,7 +609,6 @@ function cleanSelfIntersections(points) {
           // Two candidate loops:
           // loop1: [0..i, hit, j+1..end]  (skip the bulge between i+1..j)
           // loop2: [i+1..j, hit]           (the bulge itself)
-          // Keep the one with larger area
           const loop1 = [];
           for (let k = 0; k <= i; k++) loop1.push(pts[k]);
           loop1.push(hit);
@@ -608,10 +617,23 @@ function cleanSelfIntersections(points) {
           const loop2 = [hit];
           for (let k = i + 1; k <= j; k++) loop2.push(pts[k]);
 
-          const a1 = Math.abs(signedArea2D(loop1));
-          const a2 = Math.abs(signedArea2D(loop2));
+          // Prefer the loop that preserves CCW winding (positive area).
+          // Among CCW loops, pick the larger one. If neither is CCW, pick
+          // the one with larger absolute area (will be discarded later).
+          const sa1 = signedArea2D(loop1);
+          const sa2 = signedArea2D(loop2);
+          const ccw1 = sa1 > 0;
+          const ccw2 = sa2 > 0;
 
-          pts = a1 >= a2 ? loop1 : loop2;
+          if (ccw1 && ccw2) {
+            pts = sa1 >= sa2 ? loop1 : loop2;
+          } else if (ccw1) {
+            pts = loop1;
+          } else if (ccw2) {
+            pts = loop2;
+          } else {
+            pts = Math.abs(sa1) >= Math.abs(sa2) ? loop1 : loop2;
+          }
           found = true;
           break;
         }
@@ -717,7 +739,7 @@ function extractFaces() {
 
         const pts = path.map((p) => p);
         const p = offsetPolygon(pts, vertices, 0.1);
-        const min = 0.5;
+        const min = 0.1;
         if (p.vertices.length >= 3) {
           const bb = getBoundingBox(p.vertices);
           if (bb.width > min && bb.height > min) {
