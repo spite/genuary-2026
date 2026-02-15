@@ -12,6 +12,7 @@ import {
   Scene,
   Mesh,
   Color,
+  Vector2,
   Vector3,
   Group,
   HemisphereLight,
@@ -23,13 +24,12 @@ import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
 import {
-  start,
-  update,
-  draw,
-  reset,
-  areActiveLines,
-  extractFaces,
-  addBoundary,
+  Graph,
+  offsetPolygon,
+  randomPointInFace,
+  getBoundingBox,
+  createOutline,
+  createShape,
 } from "./graph.js";
 import { effectRAF } from "reactive";
 
@@ -119,13 +119,72 @@ scene.add(hemiLight);
 camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
 
-let facesExtracted = false;
+const blockGraphs = [];
+
+const graph = new Graph({
+  minDistance: params.minDistance(),
+  minTwistDistance: params.minTwistDistance(),
+  minAngle: params.angle()[0],
+  maxAngle: params.angle()[1],
+  probability: params.probability(),
+  noiseScale: params.noiseScale(),
+  onComplete: (g) => {
+    blockGraphs.length = 0;
+    while (groupFaces.children.length) {
+      groupFaces.children[0].geometry?.dispose();
+      groupFaces.remove(groupFaces.children[0]);
+    }
+    const blocks = g.extractFaces();
+    const vertexPool = {};
+    for (const block of blocks) {
+      for (const v of block.vertices) {
+        vertexPool[v.id] = v;
+      }
+    }
+    for (const block of blocks) {
+      const offset = offsetPolygon(block.path, vertexPool, 0.2);
+      if (offset.vertices.length >= 3) {
+        const blockPts = offset.vertices.map((v) => ({ x: v.x, y: v.y }));
+        const bb = getBoundingBox(blockPts);
+        const blockSize = Math.min(bb.width, bb.height);
+
+        const f = new Graph({
+          minDistance: Math.max(0.1, blockSize * 0.2),
+          minTwistDistance: 1000,
+          minAngle: 1.45,
+          maxAngle: 1.55,
+          noiseScale: 0,
+          probability: 0.1,
+
+          onComplete: (b) => {
+            const faces = b.extractFaces();
+            for (const face of faces) {
+              const pts = face.vertices.map((v) => new Vector2(v.x, v.y));
+              const mesh = createShape(pts);
+              if (mesh) groupFaces.add(mesh);
+            }
+            // Remove completed graph
+            const idx = blockGraphs.indexOf(b);
+            if (idx !== -1) blockGraphs.splice(idx, 1);
+          },
+        });
+
+        f.addBoundaryFromPoints(blockPts);
+        const offsetFace = { vertices: blockPts };
+        const p = randomPointInFace(offsetFace);
+        f.start(p.x, p.y, Maf.intRandomInRange(2, 5));
+
+        blockGraphs.push(f);
+      }
+    }
+  },
+});
 
 function init() {
-  addBoundary();
+  graph.addBoundary();
   for (let i = 0; i < params.seeds(); i++) {
     const r = 5;
-    start(
+    graph.start(
       Maf.randomInRange(-r, r),
       Maf.randomInRange(-r, r),
       params.linesPerSeed(),
@@ -135,12 +194,12 @@ function init() {
 init();
 
 effectRAF(() => {
-  facesExtracted = false;
+  blockGraphs.length = 0;
   while (groupFaces.children.length) {
     groupFaces.children[0].geometry?.dispose();
     groupFaces.remove(groupFaces.children[0]);
   }
-  reset({
+  graph.reset({
     minDistance: params.minDistance(),
     minTwistDistance: params.minTwistDistance(),
     minAngle: params.angle()[0],
@@ -173,7 +232,7 @@ document.querySelector("#randomize-button")?.addEventListener("click", () => {
 
 document.addEventListener("keydown", (e) => {
   if (e.code === "KeyN") {
-    update();
+    graph.update();
   }
 });
 
@@ -181,29 +240,13 @@ render(() => {
   controls.update();
 
   if (running) {
-    update();
-  }
-
-  if (!areActiveLines() && !facesExtracted) {
-    // const lines = draw();
-    // if (lines.length) {
-    //   while (groupLines.children.length) {
-    //     groupLines.children[0].geometry?.dispose();
-    //     groupLines.remove(groupLines.children[0]);
-    //   }
-    //   for (const line of lines) {
-    //     groupLines.add(line);
-    //   }
-    // }
-
-    const faces = extractFaces();
-    for (const face of faces) {
-      groupFaces.add(face);
+    graph.update();
+    for (const block of blockGraphs) {
+      block.update();
     }
-    facesExtracted = true;
   }
 
-  const lines = draw();
+  const lines = graph.draw();
   if (lines.length) {
     while (groupLines.children.length) {
       groupLines.children[0].geometry?.dispose();
