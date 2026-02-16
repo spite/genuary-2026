@@ -23,15 +23,9 @@ import {
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
-import {
-  Graph,
-  offsetPolygon,
-  randomPointInFace,
-  getBoundingBox,
-  createOutline,
-  createShape,
-} from "./graph.js";
+import { Graph } from "./graph.js";
 import { effectRAF } from "reactive";
+import { createPolygonSampler } from "./utils.js";
 
 const rainbow = [
   "#ef4444",
@@ -121,91 +115,41 @@ camera.lookAt(0, 0, 0);
 
 const blockGraphs = [];
 
-const graph = new Graph({
-  minDistance: params.minDistance(),
-  minTwistDistance: params.minTwistDistance(),
-  minAngle: params.angle()[0],
-  maxAngle: params.angle()[1],
-  probability: params.probability(),
-  noiseScale: params.noiseScale(),
-  onComplete: (g) => {
-    blockGraphs.length = 0;
-    while (groupFaces.children.length) {
-      groupFaces.children[0].geometry?.dispose();
-      groupFaces.remove(groupFaces.children[0]);
-    }
-    const blocks = g.extractFaces();
-    const vertexPool = {};
-    for (const block of blocks) {
-      for (const v of block.vertices) {
-        vertexPool[v.id] = v;
-      }
-    }
-    for (const block of blocks) {
-      const offset = offsetPolygon(block.path, vertexPool, 0.2);
-      if (offset.vertices.length >= 3) {
-        const blockPts = offset.vertices.map((v) => ({ x: v.x, y: v.y }));
-        const bb = getBoundingBox(blockPts);
-        const blockSize = Math.min(bb.width, bb.height);
-
-        const f = new Graph({
-          minDistance: Math.max(0.1, blockSize * 0.2),
-          minTwistDistance: 1000,
-          minAngle: 1.45,
-          maxAngle: 1.55,
-          noiseScale: 0,
-          probability: 0.1,
-
-          onComplete: (b) => {
-            const faces = b.extractFaces();
-            for (const face of faces) {
-              const pts = face.vertices.map((v) => new Vector2(v.x, v.y));
-              const mesh = createShape(pts);
-              if (mesh) groupFaces.add(mesh);
-            }
-            // Remove completed graph
-            const idx = blockGraphs.indexOf(b);
-            if (idx !== -1) blockGraphs.splice(idx, 1);
-          },
-        });
-
-        f.addBoundaryFromPoints(blockPts);
-        const offsetFace = { vertices: blockPts };
-        const p = randomPointInFace(offsetFace);
-        f.start(p.x, p.y, Maf.intRandomInRange(2, 5));
-
-        blockGraphs.push(f);
-      }
-    }
-  },
-});
+let graph;
 
 function init() {
-  graph.addBoundary();
+  const vertices = [];
+  const segments = [];
+  const r = 10;
+  const steps = 20;
+  for (let i = 0; i < steps; i++) {
+    const a = Maf.map(0, steps, 0, Maf.TAU, i);
+    const x = r * Math.cos(a);
+    const y = r * Math.sin(a);
+    vertices.push(new Vector3(x, y, 0));
+    segments.push([i, (i + 1) % steps]);
+  }
+  graph.addBoundary(vertices, segments);
+  const sampler = createPolygonSampler(vertices, segments);
   for (let i = 0; i < params.seeds(); i++) {
     const r = 5;
-    graph.start(
-      Maf.randomInRange(-r, r),
-      Maf.randomInRange(-r, r),
-      params.linesPerSeed(),
-    );
+    const p = sampler();
+    graph.start(p.x, p.y, params.linesPerSeed());
   }
 }
-init();
 
 effectRAF(() => {
-  blockGraphs.length = 0;
-  while (groupFaces.children.length) {
-    groupFaces.children[0].geometry?.dispose();
-    groupFaces.remove(groupFaces.children[0]);
+  if (graph) {
+    graph.dispose();
   }
-  graph.reset({
+  graph = new Graph({
     minDistance: params.minDistance(),
     minTwistDistance: params.minTwistDistance(),
     minAngle: params.angle()[0],
     maxAngle: params.angle()[1],
     probability: params.probability(),
     noiseScale: params.noiseScale(),
+    onComplete: (g) => {},
   });
   init();
 });
@@ -241,19 +185,21 @@ render(() => {
 
   if (running) {
     graph.update();
-    for (const block of blockGraphs) {
-      block.update();
-    }
   }
 
   const lines = graph.draw();
-  if (lines.length) {
-    while (groupLines.children.length) {
-      groupLines.children[0].geometry?.dispose();
-      groupLines.remove(groupLines.children[0]);
+  if (lines.segments) {
+    while (group.children.length) {
+      group.remove(group.children[0]);
     }
-    for (const line of lines) {
-      groupLines.add(line);
+    for (const line of lines.segments) {
+      group.add(line);
+    }
+    for (const ray of lines.rays) {
+      group.add(ray);
+    }
+    for (const vertex of lines.vertices) {
+      group.add(vertex);
     }
   }
 
