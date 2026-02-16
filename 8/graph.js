@@ -58,6 +58,7 @@ class Ray {
     this.dir = dir.normalize();
     this.tmp = new Vector3();
     this.last = new Vector3();
+    this.length = 0;
 
     this.active = true;
 
@@ -74,6 +75,8 @@ class Ray {
     this.dir.setLength(dt);
     this.last.copy(this.to);
     this.to.add(this.dir);
+
+    this.length = this.to.distanceTo(this.from);
   }
 
   draw() {
@@ -97,6 +100,7 @@ class Ray {
     this.from = this.parent.vertices[v];
     this.to.copy(this.from);
     this.last.copy(this.to);
+    this.length = 0;
   }
 
   dispose() {
@@ -113,7 +117,9 @@ const dotMesh = new Mesh(
 const up = new Vector3(0, 0, 1);
 
 class Graph {
-  constructor() {
+  constructor(params) {
+    this.params = params;
+
     this.vertices = [];
     this.segments = [];
     this.rays = [];
@@ -160,14 +166,16 @@ class Graph {
     if (!r.active) {
       return;
     }
-    if (Math.random() > 0.99) {
+    if (
+      r.length > this.params.minDistance &&
+      Math.random() > this.params.probability
+    ) {
       const vId = this.addVertex(r.to);
 
       const s = new Segment(r.o, vId, this);
       this.addSegment(s);
 
-      const range = (0.9 * Maf.PI) / 2;
-      const a = Maf.randomInRange(Maf.PI / 2 - range, Maf.PI / 2 + range);
+      const a = Maf.randomInRange(this.params.minAngle, this.params.maxAngle);
       const dir = r.dir.clone().applyAxisAngle(up, a);
       const splitRay = new Ray(vId, dir, this);
       this.addRay(splitRay);
@@ -199,7 +207,7 @@ class Graph {
         continue;
       }
       const res = getCoplanarSegmentIntersection(
-        r.from,
+        r.last,
         r.to,
         segment.from,
         segment.to,
@@ -219,7 +227,7 @@ class Graph {
         continue;
       }
       const res = getCoplanarSegmentIntersection(
-        r.from,
+        r.last,
         r.to,
         ray.from,
         ray.to,
@@ -308,7 +316,7 @@ class Graph {
     }
     const vertices = [];
     for (const vertex of this.vertices) {
-      vertices.push(this.vertexMap.get(vertex));
+      // vertices.push(this.vertexMap.get(vertex));
     }
     return { segments, rays, vertices };
   }
