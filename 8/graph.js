@@ -10,7 +10,7 @@ import {
 import {
   getColor,
   getAnglesOverCircle,
-  getSegmentSegmentIntersection,
+  getCoplanarSegmentIntersection,
 } from "./utils.js";
 
 const segmentMaterial = new LineBasicMaterial({ color: 0xffffff });
@@ -57,6 +57,7 @@ class Ray {
     this.to = this.from.clone();
     this.dir = dir.normalize();
     this.tmp = new Vector3();
+    this.last = new Vector3();
 
     this.active = true;
 
@@ -71,6 +72,7 @@ class Ray {
       return;
     }
     this.dir.setLength(dt);
+    this.last.copy(this.to);
     this.to.add(this.dir);
   }
 
@@ -94,6 +96,7 @@ class Ray {
     this.o = v;
     this.from = this.parent.vertices[v];
     this.to.copy(this.from);
+    this.last.copy(this.to);
   }
 
   dispose() {
@@ -106,6 +109,8 @@ const dotMesh = new Mesh(
   new BoxGeometry(0.1, 0.1, 0.1),
   new MeshNormalMaterial(),
 );
+
+const up = new Vector3(0, 0, 1);
 
 class Graph {
   constructor() {
@@ -142,6 +147,7 @@ class Graph {
     for (const ray of this.rays) {
       ray.update(dt);
       this.checkRay(ray);
+      this.splitRay(ray);
     }
     for (let i = this.rays.length - 1; i >= 0; i--) {
       if (!this.rays[i].active) {
@@ -150,21 +156,49 @@ class Graph {
     }
   }
 
+  splitRay(r) {
+    if (!r.active) {
+      return;
+    }
+    if (Math.random() > 0.99) {
+      const vId = this.addVertex(r.to);
+
+      const s = new Segment(r.o, vId, this);
+      this.addSegment(s);
+
+      const range = (0.9 * Maf.PI) / 2;
+      const a = Maf.randomInRange(Maf.PI / 2 - range, Maf.PI / 2 + range);
+      const dir = r.dir.clone().applyAxisAngle(up, a);
+      const splitRay = new Ray(vId, dir, this);
+      this.addRay(splitRay);
+
+      r.resetAt(vId);
+
+      if (Math.random() > 0.5) {
+        const dir = r.dir.clone().applyAxisAngle(up, a + Maf.PI);
+        const splitRay = new Ray(vId, dir, this);
+        this.addRay(splitRay);
+      }
+    }
+  }
+
   checkRay(r) {
     if (!r.active) {
       return;
     }
+
     const closest = {
       distance: Number.MAX_SAFE_INTEGER,
       point: null,
       ray: null,
       segment: null,
     };
+
     for (let segment of this.segments) {
       if (r === segment || r.o === segment.a || r.o === segment.b) {
         continue;
       }
-      const res = getSegmentSegmentIntersection(
+      const res = getCoplanarSegmentIntersection(
         r.from,
         r.to,
         segment.from,
@@ -184,7 +218,12 @@ class Graph {
       if (r === ray || r.o === ray.o || !ray.active) {
         continue;
       }
-      const res = getSegmentSegmentIntersection(r.from, r.to, ray.from, ray.to);
+      const res = getCoplanarSegmentIntersection(
+        r.from,
+        r.to,
+        ray.from,
+        ray.to,
+      );
       if (res) {
         if (res.distance < closest.distance) {
           closest.distance = res.distance;
@@ -194,6 +233,7 @@ class Graph {
         }
       }
     }
+
     if (closest.point) {
       if (closest.segment) {
         console.log(

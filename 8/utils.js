@@ -24,83 +24,70 @@ function getAnglesOverCircle(n) {
   return angles;
 }
 
-const getSegmentSegmentIntersection = (() => {
-  // Reuse these variables to avoid Garbage Collection
-  const _u = new Vector3();
-  const _v = new Vector3();
-  const _w = new Vector3();
-  const _p1 = new Vector3(); // Result point on seg 1
-  const _p2 = new Vector3(); // Result point on seg 2
+// Gemini did these:
 
-  return function (start1, end1, start2, end2, threshold = 1e-4) {
-    // Algorithm based on finding the shortest distance between two skew lines
-    _u.subVectors(end1, start1);
-    _v.subVectors(end2, start2);
-    _w.subVectors(start1, start2);
+function getCoplanarSegmentIntersection(
+  start1,
+  end1,
+  start2,
+  end2,
+  includeEndPoints = true,
+) {
+  const EPSILON = 1e-6;
 
-    const a = _u.dot(_u); // squared length of seg1
-    const b = _u.dot(_v);
-    const c = _v.dot(_v); // squared length of seg2
-    const d = _u.dot(_w);
-    const e = _v.dot(_w);
-    const D = a * c - b * b; // denominator
+  // Calculate the direction vectors
+  // Ray A: P + t * r
+  // Ray B: Q + u * s
 
-    let sc, tc; // sc = s parameter (seg1), tc = t parameter (seg2)
+  // r = end1 - start1
+  const rx = end1.x - start1.x;
+  const ry = end1.y - start1.y;
 
-    // Compute the line parameters of the two closest points
-    if (D < 1e-8) {
-      // The lines are almost parallel
-      sc = 0.0;
-      tc = b > c ? d / b : e / c; // use the largest denominator
-    } else {
-      sc = (b * e - c * d) / D;
-      tc = (a * e - b * d) / D;
-    }
+  // s = end2 - start2
+  const sx = end2.x - start2.x;
+  const sy = end2.y - start2.y;
 
-    // Clamp sc to segment 1 [0, 1]
-    // If we clamp s, we must re-calculate t to find the closest point on seg 2 given the new s
-    if (sc < 0.0) {
-      sc = 0.0;
-      tc = e / c;
-    } else if (sc > 1.0) {
-      sc = 1.0;
-      tc = (e + b) / c;
-    }
+  // Cross product of r and s (2D analog: rx * sy - ry * sx)
+  // This tells us if the lines are parallel.
+  const rxs = rx * sy - ry * sx;
 
-    // Clamp tc to segment 2 [0, 1]
-    if (tc < 0.0) {
-      tc = 0.0;
-      // re-calculate sc?
-      // usually strictly sufficient to just clamp here for intersection checks
-      if (-d < 0) sc = 0.0;
-      else if (-d > a) sc = 1.0;
-      else sc = -d / a;
-    } else if (tc > 1.0) {
-      tc = 1.0;
-      if (-d + b < 0) sc = 0;
-      else if (-d + b > a) sc = 1;
-      else sc = (-d + b) / a;
-    }
+  // Q - P (vector from start1 to start2)
+  const qpx = start2.x - start1.x;
+  const qpy = start2.y - start1.y;
 
-    // Compute actual points
-    _p1.copy(_u).multiplyScalar(sc).add(start1);
-    _p2.copy(_v).multiplyScalar(tc).add(start2);
+  // If rxs is zero, lines are parallel
+  if (Math.abs(rxs) < EPSILON) {
+    // Optional: Check for Collinear Overlap here if needed.
+    // For standard point intersection, parallel lines (even overlapping)
+    // usually result in null because the intersection is a segment, not a point.
+    return null;
+  }
 
-    // Calculate squared distance
-    const distSq = _p1.distanceToSquared(_p2);
+  // Solve for t and u
+  // t = (q - p) x s / (r x s)
+  const qpxs = qpx * sy - qpy * sx;
+  const t = qpxs / rxs;
 
-    // Check intersection
-    if (distSq !== 0 && distSq < threshold * threshold) {
-      // It's a hit. Return the midpoint or just p1
-      return {
-        distance: distSq,
-        point: _p1.clone(),
-      }; // Return a clone so the user owns the point
-    }
+  // u = (q - p) x r / (r x s)
+  const qpxr = qpx * ry - qpy * rx;
+  const u = qpxr / rxs;
 
-    return null; // No intersection
-  };
-})();
+  // Check if t and u are within the segment bounds [0, 1]
+  // We use EPSILON to handle floating point errors at the exact endpoints
+  const lower = includeEndPoints ? -EPSILON : EPSILON;
+  const upper = includeEndPoints ? 1 + EPSILON : 1 - EPSILON;
+
+  if (t >= lower && t <= upper && u >= lower && u <= upper) {
+    // We have an intersection.
+    // Point = start1 + t * r
+    return {
+      distance: t,
+      point: new Vector3(start1.x + t * rx, start1.y + t * ry, 0),
+    };
+  }
+
+  return null;
+}
 
 function createPolygonSampler(vertices, segments) {
   // --- Step 1: Order the segments into a consecutive path ---
@@ -220,6 +207,6 @@ function findDominantAxis(vertices, indices) {
 export {
   getColor,
   getAnglesOverCircle,
-  getSegmentSegmentIntersection,
+  getCoplanarSegmentIntersection,
   createPolygonSampler,
 };
