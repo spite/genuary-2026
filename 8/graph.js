@@ -168,7 +168,7 @@ class Graph {
     }
     if (
       r.length > this.params.minDistance &&
-      Math.random() > this.params.probability
+      Math.random() < this.params.probability
     ) {
       const vId = this.addVertex(r.to);
 
