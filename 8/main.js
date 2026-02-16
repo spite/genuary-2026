@@ -42,6 +42,7 @@ const rainbow = [
 
 const defaults = {
   seed: 1337,
+  boundarySides: 20,
   seeds: 3,
   linesPerSeed: 5,
   minDistance: 1.68,
@@ -59,6 +60,7 @@ const gui = new GUI(
   "8. A City. Create a generative metropolis.",
   document.querySelector("#gui-container"),
 );
+gui.addSlider("Boundary sides", params.boundarySides, 3, 20, 1);
 gui.addSlider("Seeds", params.seeds, 1, 5, 1);
 gui.addSlider("Lines per seed", params.linesPerSeed, 1, 10, 1);
 gui.addSlider("Min. split distance", params.minDistance, 0.1, 2, 0.01);
@@ -113,15 +115,13 @@ scene.add(hemiLight);
 camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
 
-const blockGraphs = [];
-
 let graph;
 
 function init() {
   const vertices = [];
   const segments = [];
   const r = 10;
-  const steps = 20;
+  const steps = params.boundarySides();
   for (let i = 0; i < steps; i++) {
     const a = Maf.map(0, steps, 0, Maf.TAU, i);
     const x = r * Math.cos(a);
@@ -155,6 +155,7 @@ effectRAF(() => {
 });
 
 function randomize() {
+  params.boundarySides.set(Maf.intRandomInRange(3, 20));
   params.minDistance.set(Maf.randomInRange(0.2, 2));
   params.minTwistDistance.set(Maf.randomInRange(0.2, 2));
   params.angle.set([
