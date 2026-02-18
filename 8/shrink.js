@@ -96,6 +96,13 @@ class PolygonInset {
       return null;
     }
 
+    // Step 5: Clamp any escaped points back onto the nearest edge
+    for (let i = 0; i < result.length; i++) {
+      if (!this.pointInPolygon(result[i], poly)) {
+        result[i] = this.closestPointOnPolygon(result[i], poly);
+      }
+    }
+
     if (!ccw) result.reverse();
     return result;
   }
@@ -194,6 +201,50 @@ class PolygonInset {
     }
 
     return pts;
+  }
+
+  /**
+   * Project a point onto the nearest edge of the polygon.
+   */
+  static closestPointOnPolygon(pt, poly) {
+    let bestDist = Infinity;
+    let best = null;
+    for (let i = 0; i < poly.length; i++) {
+      const j = (i + 1) % poly.length;
+      const a = poly[i];
+      const b = poly[j];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq < 1e-12) continue;
+      const t = Math.max(0, Math.min(1, ((pt.x - a.x) * dx + (pt.y - a.y) * dy) / lenSq));
+      const px = a.x + t * dx;
+      const py = a.y + t * dy;
+      const d = (pt.x - px) * (pt.x - px) + (pt.y - py) * (pt.y - py);
+      if (d < bestDist) {
+        bestDist = d;
+        best = new Vector3(px, py, 0);
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Ray-casting point-in-polygon test.
+   */
+  static pointInPolygon(pt, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      if (
+        yi > pt.y !== yj > pt.y &&
+        pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi
+      ) {
+        inside = !inside;
+      }
+    }
+    return inside;
   }
 
   static signedArea(points) {
