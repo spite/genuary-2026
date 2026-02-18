@@ -125,6 +125,7 @@ class Graph {
     this.rays = [];
 
     this.vertexMap = new Map();
+    this.completed = false;
   }
 
   addBoundary(vertices, segments) {
@@ -159,6 +160,18 @@ class Graph {
       if (!this.rays[i].active) {
         this.removeRay(this.rays[i]);
       }
+    }
+
+    let activeLines = false;
+    for (const ray of this.rays) {
+      if (ray.active) {
+        activeLines = true;
+        continue;
+      }
+    }
+    if (!activeLines && !this.completed) {
+      this.params.onComplete();
+      this.completed = true;
     }
   }
 

@@ -15,6 +15,10 @@ import {
   Vector2,
   Vector3,
   Group,
+  Shape,
+  ShapeGeometry,
+  MeshBasicMaterial,
+  DoubleSide,
   HemisphereLight,
   IcosahedronGeometry,
   TorusGeometry,
@@ -25,7 +29,9 @@ import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
 import { GradientLinear } from "modules/gradient.js";
 import { Graph } from "./graph.js";
 import { effectRAF } from "reactive";
-import { createPolygonSampler } from "./utils.js";
+import { createPolygonSampler, getColor } from "./utils.js";
+import { GraphRegionExtractor } from "./extractor.js";
+import { PolygonInset } from "./shrink.js";
 
 const rainbow = [
   "#ef4444",
@@ -116,6 +122,7 @@ camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
 
 let graph;
+let faceMeshes = [];
 
 function init() {
   const vertices = [];
@@ -142,6 +149,12 @@ effectRAF(() => {
   if (graph) {
     graph.dispose();
   }
+  for (const mesh of faceMeshes) {
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+  faceMeshes = [];
   graph = new Graph({
     minDistance: params.minDistance(),
     minTwistDistance: params.minTwistDistance(),
@@ -149,7 +162,28 @@ effectRAF(() => {
     maxAngle: params.angle()[1],
     probability: params.probability(),
     noiseScale: params.noiseScale(),
-    onComplete: (g) => {},
+    onComplete: (g) => {
+      const extractor = new GraphRegionExtractor(
+        graph.vertices,
+        graph.segments.map((s) => [s.a, s.b]),
+      );
+      const regions = extractor.solve();
+      for (const region of regions) {
+        const v = region.map((i) => graph.vertices[i]);
+        const shape = PolygonInset.shrink(v, 0.1, 2.5);
+
+        const polygonShape = new Shape(shape);
+        const geometry = new ShapeGeometry(polygonShape);
+        const material = new MeshBasicMaterial({
+          color: getColor(),
+          side: DoubleSide,
+          wireframe: !true,
+        });
+        const polygonMesh = new Mesh(geometry, material);
+        scene.add(polygonMesh);
+        faceMeshes.push(polygonMesh);
+      }
+    },
   });
   init();
 });
