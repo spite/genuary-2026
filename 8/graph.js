@@ -13,6 +13,9 @@ import {
   getCoplanarSegmentIntersection,
 } from "./utils.js";
 
+const DEBUG = false;
+const log = (...args) => DEBUG && log(...args);
+
 const segmentMaterial = new LineBasicMaterial({ color: 0xffffff });
 
 class Segment {
@@ -26,7 +29,11 @@ class Segment {
     this.to = parent.vertices[b];
     const points = [this.from, this.to];
     const geometry = new BufferGeometry().setFromPoints(points);
-    const material = new LineBasicMaterial({ color: getColor() });
+    const material = new LineBasicMaterial({
+      color: getColor(),
+      opacity: 0.5,
+      transparent: true,
+    });
     this.line = new Line(geometry, material);
     this.line.frustumCulled = false;
   }
@@ -77,6 +84,10 @@ class Ray {
     this.to.add(this.dir);
 
     this.length = this.to.distanceTo(this.from);
+    if (this.length > 10) {
+      log(`Ray ${this.id} exceeded max length, stopping.`);
+      this.stop();
+    }
   }
 
   draw() {
@@ -95,7 +106,7 @@ class Ray {
   }
 
   resetAt(v) {
-    console.log(`Ray ${this.id} reset `);
+    log(`Ray ${this.id} reset `);
     this.o = v;
     this.from = this.parent.vertices[v];
     this.to.copy(this.from);
@@ -170,7 +181,7 @@ class Graph {
       }
     }
     if (!activeLines && !this.completed) {
-      this.params.onComplete();
+      this.params.onComplete(this);
       this.completed = true;
     }
   }
@@ -195,11 +206,11 @@ class Graph {
 
       r.resetAt(vId);
 
-      if (Math.random() > 0.5) {
-        const dir = r.dir.clone().applyAxisAngle(up, a + Maf.PI);
-        const splitRay = new Ray(vId, dir, this);
-        this.addRay(splitRay);
-      }
+      // if (Math.random() > 0.5) {
+      //   const dir = r.dir.clone().applyAxisAngle(up, a + Maf.PI);
+      //   const splitRay = new Ray(vId, dir, this);
+      //   this.addRay(splitRay);
+      // }
     }
   }
 
@@ -257,7 +268,7 @@ class Graph {
 
     if (closest.point) {
       if (closest.segment) {
-        console.log(
+        log(
           `Ray ${r.id} intersects segments ${closest.segment.id} at ${closest.distance} distance.`,
         );
         r.stop();
@@ -271,7 +282,7 @@ class Graph {
         closest.segment.splitAt(vId);
       }
       if (closest.ray) {
-        console.log(
+        log(
           `Ray ${r.id} intersects ray ${closest.ray.id} at ${closest.distance} distance.`,
         );
         r.stop();
@@ -298,12 +309,12 @@ class Graph {
 
   addRay(ray) {
     this.rays.push(ray);
-    console.log(`Added ray ${ray.id}`);
+    log(`Added ray ${ray.id}`);
   }
 
   addSegment(segment) {
     this.segments.push(segment);
-    console.log(`Added segment ${segment.id}`);
+    log(`Added segment ${segment.id}`);
   }
 
   removeRay(r) {
@@ -311,7 +322,7 @@ class Graph {
 
     if (index > -1) {
       this.rays.splice(index, 1);
-      console.log(`Removed ray ${r.id}`);
+      log(`Removed ray ${r.id}`);
     } else {
       debugger;
     }
