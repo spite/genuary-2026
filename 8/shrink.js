@@ -1,5 +1,8 @@
 import { Vector3 } from "three";
 
+const DEBUG = false;
+const log = (...args) => DEBUG && console.log(...args);
+
 class PolygonInset {
   /**
    * Robust polygon deflation via edge offsetting.
@@ -88,7 +91,7 @@ class PolygonInset {
     const absOrigArea = Math.abs(area);
     const newArea = this.signedArea(result);
     if (newArea <= 0 || newArea >= absOrigArea) {
-      console.warn(
+      log(
         `Polygon invalid after deflate ` +
           `(area: ${absOrigArea.toFixed(4)} → ${newArea.toFixed(4)}, ` +
           `${n} verts). Discarding.`,
