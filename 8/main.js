@@ -16,13 +16,11 @@ import {
   Vector3,
   Group,
   Shape,
-  ShapeGeometry,
-  MeshBasicMaterial,
-  DoubleSide,
+  ExtrudeGeometry,
+  MeshStandardMaterial,
   HemisphereLight,
-  IcosahedronGeometry,
-  TorusGeometry,
   DirectionalLight,
+  PCFSoftShadowMap,
 } from "three";
 import { Material, loadEnvMap } from "modules/material.js";
 import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
@@ -56,6 +54,7 @@ const defaults = {
   angle: [1.42, 1.66],
   probability: 0.13,
   noiseScale: 1,
+  greenness: 0.9,
   showLines: true,
   showFaces: !true,
 };
@@ -74,6 +73,7 @@ gui.addSlider("Min. twist distance", params.minTwistDistance, 0.1, 2, 0.01);
 gui.addRangeSlider("Split angle range", params.angle, 0, Math.PI, 0.01);
 gui.addSlider("Split probability", params.probability, 0, 1, 0.001);
 gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
+gui.addSlider("Greenness", params.greenness, 0, 1, 0.001);
 gui.addCheckbox("Show lines", params.showLines, (e) => {
   groupLines.visible = e;
 });
@@ -91,6 +91,8 @@ gui.show();
 
 const color = 0; //rainbow[rainbow.length - 1];
 renderer.setClearColor(new Color(color));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = PCFSoftShadowMap;
 
 const scene = new Scene();
 const group = new Group();
@@ -98,18 +100,25 @@ const groupFaces = new Group();
 groupFaces.visible = params.showFaces();
 const groupLines = new Group();
 groupLines.visible = params.showLines();
+const groupCity = new Group();
 group.add(groupFaces);
 group.add(groupLines);
+scene.add(groupCity);
 scene.add(group);
+group.rotation.x = -Math.PI / 2;
+groupCity.rotation.x = -Math.PI / 2;
 
 const light = new DirectionalLight(0xffffff, 3);
-light.position.set(3, 6, 3);
+light.position.set(15, 15, 30);
 light.castShadow = true;
-light.shadow.camera.top = 3;
-light.shadow.camera.bottom = -3;
-light.shadow.camera.right = 3;
-light.shadow.camera.left = -3;
+light.shadow.camera.top = 16;
+light.shadow.camera.bottom = -16;
+light.shadow.camera.right = 16;
+light.shadow.camera.left = -16;
+light.shadow.camera.near = 0.1;
+light.shadow.camera.far = 80;
 light.shadow.mapSize.set(4096, 4096);
+light.shadow.camera.updateProjectionMatrix();
 scene.add(light);
 
 const hemiLight = new HemisphereLight(0xffffff, 0xffffff, 2);
@@ -120,6 +129,9 @@ scene.add(hemiLight);
 
 camera.position.set(1, 1, 1).multiplyScalar(20);
 camera.lookAt(0, 0, 0);
+camera.near = 0.1;
+camera.far = 200;
+camera.updateProjectionMatrix();
 
 let graph;
 let faceMeshes = [];
@@ -145,12 +157,72 @@ function init() {
   }
 }
 
+let subGraphs = [];
+
+const SUBDIVIDE_THRESHOLD = 3.0;
+
+function subdivideBlock(shape) {
+  const localSegments = shape.map((_, i) => [i, (i + 1) % shape.length]);
+  const subGraph = new Graph({
+    minDistance: 1,
+    minTwistDistance: params.minTwistDistance(),
+    minAngle: 1.45,
+    maxAngle: 1.55,
+    probability: 0.9,
+    noiseScale: params.noiseScale(),
+    onComplete: (g) => {
+      const extractor = new GraphRegionExtractor(
+        g.vertices,
+        g.segments.map((s) => [s.a, s.b]),
+      );
+      const regions = extractor.solve();
+      for (const region of regions) {
+        const regionShape = region.map((i) => g.vertices[i]);
+        const area = Math.abs(PolygonInset.signedArea(regionShape));
+        if (area > SUBDIVIDE_THRESHOLD) {
+          const subShape = PolygonInset.shrink(regionShape, 0.05, 2.5);
+          if (subShape) {
+            subdivideBlock(subShape);
+            continue;
+          }
+        }
+        const polygonShape = new Shape(regionShape);
+        const height = Math.min(Math.random() * Math.sqrt(area) * 2 + 0.1, 5);
+        const geometry = new ExtrudeGeometry(polygonShape, {
+          depth: height,
+          bevelEnabled: false,
+        });
+        const material = new MeshStandardMaterial({ color: 0xffffff });
+        const polygonMesh = new Mesh(geometry, material);
+        polygonMesh.castShadow = true;
+        polygonMesh.receiveShadow = true;
+        groupCity.add(polygonMesh);
+        faceMeshes.push(polygonMesh);
+      }
+    },
+  });
+  subGraph.addBoundary(shape, localSegments);
+  try {
+    const sampler = createPolygonSampler(shape, localSegments);
+    const p = sampler();
+    subGraph.start(p.x, p.y, 2);
+    subGraphs.push(subGraph);
+  } catch (e) {
+    console.error("Error sampling polygon, discarding subgraph.", e);
+  }
+}
+
 effectRAF(() => {
+  const greenness = params.greenness();
   if (graph) {
     graph.dispose();
   }
+  for (const subGraph of subGraphs) {
+    subGraph.dispose();
+  }
+  subGraphs = [];
   for (const mesh of faceMeshes) {
-    scene.remove(mesh);
+    groupCity.remove(mesh);
     mesh.geometry.dispose();
     mesh.material.dispose();
   }
@@ -171,17 +243,27 @@ effectRAF(() => {
       for (const region of regions) {
         const v = region.map((i) => graph.vertices[i]);
         const shape = PolygonInset.shrink(v, 0.1, 2.5);
-
-        const polygonShape = new Shape(shape);
-        const geometry = new ShapeGeometry(polygonShape);
-        const material = new MeshBasicMaterial({
-          color: getColor(),
-          side: DoubleSide,
-          wireframe: !true,
-        });
-        const polygonMesh = new Mesh(geometry, material);
-        scene.add(polygonMesh);
-        faceMeshes.push(polygonMesh);
+        if (!shape) {
+          continue;
+        }
+        if (Math.random() < greenness) {
+          const polygonShape = new Shape(shape);
+          const geometry = new ExtrudeGeometry(polygonShape, {
+            depth: 0.1,
+            bevelEnabled: false,
+          });
+          const hue = Maf.randomInRange(0.28, 0.38);
+          const material = new MeshStandardMaterial({
+            color: new Color().setHSL(hue, 0.6, 0.35),
+          });
+          const lawn = new Mesh(geometry, material);
+          lawn.castShadow = true;
+          lawn.receiveShadow = true;
+          groupCity.add(lawn);
+          faceMeshes.push(lawn);
+          continue;
+        }
+        subdivideBlock(shape);
       }
     },
   });
@@ -190,14 +272,13 @@ effectRAF(() => {
 
 function randomize() {
   params.boundarySides.set(Maf.intRandomInRange(3, 20));
-  params.minDistance.set(Maf.randomInRange(0.2, 2));
+  params.minDistance.set(Maf.randomInRange(1, 2));
   params.minTwistDistance.set(Maf.randomInRange(0.2, 2));
-  params.angle.set([
-    Maf.randomInRange(0, Math.PI / 2),
-    Maf.randomInRange(Math.PI / 2, Math.PI),
-  ]);
-  params.probability.set(Maf.randomInRange(0, 0.8));
+  const d = Maf.randomInRange(0, 0.5);
+  params.angle.set([Math.PI / 2 - d, Math.PI / 2 + d]);
+  params.probability.set(Maf.randomInRange(0, 0.7));
   params.noiseScale.set(Maf.randomInRange(0, 10));
+  params.greenness.set(Maf.randomInRange(0.2, 0.8));
 }
 
 window.addEventListener("keydown", (e) => {
@@ -220,6 +301,10 @@ render(() => {
 
   if (running) {
     graph.update();
+
+    for (const subGraph of subGraphs) {
+      subGraph.update();
+    }
   }
 
   const lines = graph.draw();
@@ -239,6 +324,8 @@ render(() => {
   }
 
   const dt = clock.getDelta();
+  groupCity.rotation.z += dt / 10;
+  group.rotation.z += dt / 10;
 
   renderer.render(scene, camera);
 });
