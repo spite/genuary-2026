@@ -199,18 +199,24 @@ class Graph {
       const s = new Segment(r.o, vId, this);
       this.addSegment(s);
 
-      const a = Maf.randomInRange(this.params.minAngle, this.params.maxAngle);
+      let a = Maf.randomInRange(this.params.minAngle, this.params.maxAngle);
+      if (this.params.splitDirection === "counterclockwise") {
+        a = -a;
+      }
+      if (this.params.splitDirection === "both" && Math.random() > 0.5) {
+        a = -a;
+      }
       const dir = r.dir.clone().applyAxisAngle(up, a);
       const splitRay = new Ray(vId, dir, this);
       this.addRay(splitRay);
 
       r.resetAt(vId);
 
-      // if (Math.random() > 0.5) {
-      //   const dir = r.dir.clone().applyAxisAngle(up, a + Maf.PI);
-      //   const splitRay = new Ray(vId, dir, this);
-      //   this.addRay(splitRay);
-      // }
+      if (this.params.splitDirection === "both" && Math.random() > 0.5) {
+        const dir = r.dir.clone().applyAxisAngle(up, a + Maf.PI);
+        const splitRay = new Ray(vId, dir, this);
+        this.addRay(splitRay);
+      }
     }
   }
 
