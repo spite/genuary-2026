@@ -200,10 +200,11 @@ class Graph {
       this.addSegment(s);
 
       let a = Maf.randomInRange(this.params.minAngle, this.params.maxAngle);
-      if (this.params.splitDirection === "counterclockwise") {
+      // i don't know why it's reversed from what i expected (are we upside down?)
+      if (this.params.splitDirection === "clockwise") {
         a = -a;
       }
-      if (this.params.splitDirection === "both" && Math.random() > 0.5) {
+      if (this.params.splitDirection === "random" && Math.random() > 0.5) {
         a = -a;
       }
       const dir = r.dir.clone().applyAxisAngle(up, a);
@@ -212,7 +213,7 @@ class Graph {
 
       r.resetAt(vId);
 
-      if (this.params.splitDirection === "both" && Math.random() > 0.5) {
+      if (this.params.splitDirection === "both") {
         const dir = r.dir.clone().applyAxisAngle(up, a + Maf.PI);
         const splitRay = new Ray(vId, dir, this);
         this.addRay(splitRay);
