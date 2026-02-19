@@ -1,5 +1,7 @@
 import { Vector3 } from "three";
 
+const DEBUG = false;
+
 class GraphRegionExtractor {
   constructor(vertices, edges) {
     // vertices: Array of THREE.Vector2
@@ -13,7 +15,7 @@ class GraphRegionExtractor {
 
   addLog(msg) {
     this.log.push(msg);
-    console.log(msg);
+    if (DEBUG) console.log(msg);
   }
 
   /**
