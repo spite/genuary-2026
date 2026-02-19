@@ -308,12 +308,10 @@ document.addEventListener("keydown", (e) => {
 render(() => {
   controls.update();
 
-  if (running) {
-    graph.update();
+  graph.update();
 
-    for (const subGraph of subGraphs) {
-      subGraph.update();
-    }
+  for (const subGraph of subGraphs) {
+    subGraph.update();
   }
 
   const lines = graph.draw();
@@ -332,9 +330,11 @@ render(() => {
     }
   }
 
-  const dt = clock.getDelta();
-  groupCity.rotation.z += dt / 10;
-  group.rotation.z += dt / 10;
+  if (running) {
+    const dt = clock.getDelta();
+    groupCity.rotation.z += dt / 10;
+    group.rotation.z += dt / 10;
+  }
 
   renderer.render(scene, camera);
 });
