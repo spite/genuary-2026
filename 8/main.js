@@ -53,6 +53,7 @@ const defaults = {
   minTwistDistance: 2,
   angle: [1.42, 1.66],
   probability: 0.13,
+  splitDirection: "random",
   noiseScale: 1,
   greenness: 0.9,
   showLines: true,
@@ -72,6 +73,12 @@ gui.addSlider("Min. split distance", params.minDistance, 0.1, 2, 0.01);
 gui.addSlider("Min. twist distance", params.minTwistDistance, 0.1, 2, 0.01);
 gui.addRangeSlider("Split angle range", params.angle, 0, Math.PI, 0.01);
 gui.addSlider("Split probability", params.probability, 0, 1, 0.001);
+gui.addSelect("Split direction", params.splitDirection, [
+  ["random", "Random"],
+  ["clockwise", "Clockwise"],
+  ["counterclockwise", "Counterclockwise"],
+  ["both", "Both"],
+]);
 gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
 gui.addSlider("Greenness", params.greenness, 0, 1, 0.001);
 gui.addCheckbox("Show lines", params.showLines, (e) => {
@@ -169,6 +176,7 @@ function subdivideBlock(shape) {
     minAngle: 1.45,
     maxAngle: 1.55,
     probability: 0.9,
+    splitDirection: params.splitDirection(),
     noiseScale: params.noiseScale(),
     onComplete: (g) => {
       const extractor = new GraphRegionExtractor(
@@ -233,6 +241,7 @@ effectRAF(() => {
     minAngle: params.angle()[0],
     maxAngle: params.angle()[1],
     probability: params.probability(),
+    splitDirection: params.splitDirection(),
     noiseScale: params.noiseScale(),
     onComplete: (g) => {
       const extractor = new GraphRegionExtractor(
