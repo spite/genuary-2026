@@ -12,7 +12,6 @@ import {
   Scene,
   Mesh,
   Color,
-  Vector2,
   Vector3,
   Group,
   Shape,
@@ -22,9 +21,6 @@ import {
   DirectionalLight,
   PCFSoftShadowMap,
 } from "three";
-import { Material, loadEnvMap } from "modules/material.js";
-import { RoundedCylinderGeometry } from "modules/rounded-cylinder-geometry.js";
-import { GradientLinear } from "modules/gradient.js";
 import { Graph } from "./graph.js";
 import { effectRAF } from "reactive";
 import { createPolygonSampler, getColor } from "./utils.js";
@@ -200,7 +196,10 @@ function subdivideBlock(shape) {
         const height = Math.min(Math.random() * Math.sqrt(area) * 2 + 0.1, 5);
         const geometry = new ExtrudeGeometry(polygonShape, {
           depth: height,
-          bevelEnabled: false,
+          bevelEnabled: true,
+          bevelThickness: 0.05,
+          bevelSize: 0.05,
+          bevelSegments: 1,
         });
         const material = new MeshStandardMaterial({ color: 0xffffff });
         const polygonMesh = new Mesh(geometry, material);
@@ -265,7 +264,10 @@ effectRAF(() => {
           const polygonShape = new Shape(shape);
           const geometry = new ExtrudeGeometry(polygonShape, {
             depth: Maf.randomInRange(0.1, 0.2),
-            bevelEnabled: false,
+            bevelEnabled: true,
+            bevelThickness: 0.05,
+            bevelSize: 0.05,
+            bevelSegments: 1,
           });
           const hue = Maf.randomInRange(0.28, 0.38);
           const material = new MeshStandardMaterial({
