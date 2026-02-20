@@ -12,11 +12,13 @@ import {
   getAnglesOverCircle,
   getCoplanarSegmentIntersection,
 } from "./utils.js";
+import { ImprovedNoise } from "third_party/ImprovedNoise.js";
 
 const DEBUG = false;
-const log = (...args) => DEBUG && log(...args);
+const log = (...args) => DEBUG && console.log(...args);
 
 const segmentMaterial = new LineBasicMaterial({ color: 0xffffff });
+const noise = new ImprovedNoise();
 
 class Segment {
   constructor(a, b, parent) {
@@ -66,6 +68,7 @@ class Ray {
     this.tmp = new Vector3();
     this.last = new Vector3();
     this.length = 0;
+    this.totalLength = 0;
 
     this.active = true;
 
@@ -82,6 +85,7 @@ class Ray {
     this.dir.setLength(dt);
     this.last.copy(this.to);
     this.to.add(this.dir);
+    this.totalLength += this.dir.length();
 
     this.length = this.to.distanceTo(this.from);
     if (this.length > 10) {
@@ -105,12 +109,15 @@ class Ray {
     this.active = false;
   }
 
-  resetAt(v) {
+  resetAt(v, resetTotalLength = true) {
     log(`Ray ${this.id} reset `);
     this.o = v;
     this.from = this.parent.vertices[v];
     this.to.copy(this.from);
     this.last.copy(this.to);
+    if (resetTotalLength) {
+      this.totalLength = 0;
+    }
     this.length = 0;
   }
 
@@ -166,6 +173,7 @@ class Graph {
       ray.update(dt);
       this.checkRay(ray);
       this.splitRay(ray);
+      this.twistRay(ray);
     }
     for (let i = this.rays.length - 1; i >= 0; i--) {
       if (!this.rays[i].active) {
@@ -191,7 +199,7 @@ class Graph {
       return;
     }
     if (
-      r.length > this.params.minDistance &&
+      r.totalLength > this.params.minDistance &&
       Math.random() < this.params.probability
     ) {
       const vId = this.addVertex(r.to);
@@ -218,6 +226,27 @@ class Graph {
         const splitRay = new Ray(vId, dir, this);
         this.addRay(splitRay);
       }
+    }
+  }
+
+  twistRay(r) {
+    if (!r.active) {
+      return;
+    }
+    if (r.length > this.params.minTwistDistance) {
+      const vId = this.addVertex(r.to);
+
+      const s = new Segment(r.o, vId, this);
+      this.addSegment(s);
+
+      r.resetAt(vId, false);
+      const a = noise.noise(
+        r.to.x * this.params.noiseScale,
+        r.to.y * this.params.noiseScale,
+        0,
+      );
+      const angle = ((a * Maf.PI) / 2) * this.params.noiseRotation;
+      r.dir.applyAxisAngle(up, angle);
     }
   }
 
