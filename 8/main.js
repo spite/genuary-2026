@@ -26,6 +26,7 @@ import { effectRAF } from "reactive";
 import { createPolygonSampler, getColor } from "./utils.js";
 import { GraphRegionExtractor } from "./extractor.js";
 import { PolygonInset } from "./shrink.js";
+import { Easings } from "easings";
 
 const rainbow = [
   "#ef4444",
@@ -205,6 +206,8 @@ function subdivideBlock(shape) {
         const polygonMesh = new Mesh(geometry, material);
         polygonMesh.castShadow = true;
         polygonMesh.receiveShadow = true;
+        polygonMesh.userData.t = 0;
+        polygonMesh.userData.height = height;
         groupCity.add(polygonMesh);
         faceMeshes.push(polygonMesh);
       }
@@ -261,9 +264,10 @@ effectRAF(() => {
         }
 
         if (Math.random() < greenness) {
+          const height = Maf.randomInRange(0.1, 0.2);
           const polygonShape = new Shape(shape);
           const geometry = new ExtrudeGeometry(polygonShape, {
-            depth: Maf.randomInRange(0.1, 0.2),
+            depth: height,
             bevelEnabled: true,
             bevelThickness: 0.05,
             bevelSize: 0.05,
@@ -276,6 +280,8 @@ effectRAF(() => {
           const lawn = new Mesh(geometry, material);
           lawn.castShadow = true;
           lawn.receiveShadow = true;
+          lawn.userData.t = 0;
+          lawn.userData.height = height;
           groupCity.add(lawn);
           faceMeshes.push(lawn);
           continue;
@@ -315,12 +321,18 @@ document.addEventListener("keydown", (e) => {
 });
 
 render(() => {
+  const dt = clock.getDelta();
   controls.update();
 
   graph.update();
 
   for (const subGraph of subGraphs) {
     subGraph.update();
+  }
+
+  for (const mesh of faceMeshes) {
+    mesh.userData.t += dt;
+    mesh.scale.z = Easings.OutBounce(Maf.clamp(mesh.userData.t, 0, 1));
   }
 
   const lines = graph.draw();
@@ -339,7 +351,6 @@ render(() => {
     }
   }
 
-  const dt = clock.getDelta();
   if (running) {
     groupCity.rotation.z += dt / 10;
     group.rotation.z += dt / 10;
