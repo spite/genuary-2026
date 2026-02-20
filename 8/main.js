@@ -55,7 +55,9 @@ const defaults = {
   probability: 0.13,
   splitDirection: "random",
   noiseScale: 1,
-  greenness: 0.9,
+  noiseRotation: 0.2,
+  offset: 0.05,
+  greenness: 0.2,
   showLines: true,
   showFaces: !true,
 };
@@ -79,7 +81,9 @@ gui.addSelect("Split direction", params.splitDirection, [
   ["counterclockwise", "Counterclockwise"],
   ["both", "Both"],
 ]);
+gui.addSlider("Offset", params.offset, 0, 0.3, 0.001);
 gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
+gui.addSlider("Noise rotation", params.noiseRotation, 0, 1, 0.01);
 gui.addSlider("Greenness", params.greenness, 0, 1, 0.001);
 gui.addCheckbox("Show lines", params.showLines, (e) => {
   groupLines.visible = e;
@@ -170,14 +174,15 @@ const SUBDIVIDE_THRESHOLD = 3.0;
 
 function subdivideBlock(shape) {
   const localSegments = shape.map((_, i) => [i, (i + 1) % shape.length]);
+
   const subGraph = new Graph({
     minDistance: 1,
-    minTwistDistance: params.minTwistDistance(),
+    minTwistDistance: 1000,
     minAngle: 1.45,
     maxAngle: 1.55,
     probability: 0.9,
     splitDirection: params.splitDirection(),
-    noiseScale: params.noiseScale(),
+    noiseScale: 0,
     onComplete: (g) => {
       const extractor = new GraphRegionExtractor(
         g.vertices,
@@ -188,11 +193,8 @@ function subdivideBlock(shape) {
         const regionShape = region.map((i) => g.vertices[i]);
         const area = Math.abs(PolygonInset.signedArea(regionShape));
         if (area > SUBDIVIDE_THRESHOLD) {
-          const subShape = PolygonInset.shrink(regionShape, 0.05, 2.5);
-          if (subShape) {
-            subdivideBlock(subShape);
-            continue;
-          }
+          subdivideBlock(regionShape);
+          continue;
         }
         const polygonShape = new Shape(regionShape);
         const height = Math.min(Math.random() * Math.sqrt(area) * 2 + 0.1, 5);
@@ -222,6 +224,8 @@ function subdivideBlock(shape) {
 
 effectRAF(() => {
   const greenness = params.greenness();
+  const offset = params.offset();
+
   if (graph) {
     graph.dispose();
   }
@@ -243,6 +247,7 @@ effectRAF(() => {
     probability: params.probability(),
     splitDirection: params.splitDirection(),
     noiseScale: params.noiseScale(),
+    noiseRotation: params.noiseRotation(),
     onComplete: (g) => {
       const extractor = new GraphRegionExtractor(
         graph.vertices,
@@ -251,14 +256,15 @@ effectRAF(() => {
       const regions = extractor.solve();
       for (const region of regions) {
         const v = region.map((i) => graph.vertices[i]);
-        const shape = PolygonInset.shrink(v, 0.1, 2.5);
+        const shape = offset > 0 ? PolygonInset.shrink(v, offset, 2.5) : v;
         if (!shape) {
           continue;
         }
+
         if (Math.random() < greenness) {
           const polygonShape = new Shape(shape);
           const geometry = new ExtrudeGeometry(polygonShape, {
-            depth: 0.1,
+            depth: Maf.randomInRange(0.1, 0.2),
             bevelEnabled: false,
           });
           const hue = Maf.randomInRange(0.28, 0.38);
@@ -272,6 +278,7 @@ effectRAF(() => {
           faceMeshes.push(lawn);
           continue;
         }
+
         subdivideBlock(shape);
       }
     },
@@ -330,8 +337,8 @@ render(() => {
     }
   }
 
+  const dt = clock.getDelta();
   if (running) {
-    const dt = clock.getDelta();
     groupCity.rotation.z += dt / 10;
     group.rotation.z += dt / 10;
   }
