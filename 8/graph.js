@@ -33,10 +33,9 @@ class Segment {
     const geometry = new BufferGeometry().setFromPoints(points);
     const material = new LineBasicMaterial({
       color: getColor(),
-      opacity: 0.5,
-      transparent: true,
     });
     this.line = new Line(geometry, material);
+    this.line.position.z = 0.01;
     this.line.frustumCulled = false;
   }
 
@@ -75,6 +74,7 @@ class Ray {
     const points = [this.from, this.to];
     const geometry = new BufferGeometry().setFromPoints(points);
     this.line = new Line(geometry, segmentMaterial);
+    this.line.position.z = 0.01;
     this.line.frustumCulled = false;
   }
 
