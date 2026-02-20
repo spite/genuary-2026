@@ -15,6 +15,7 @@ import {
   Vector3,
   Group,
   Shape,
+  ShapeGeometry,
   ExtrudeGeometry,
   MeshStandardMaterial,
   HemisphereLight,
@@ -166,18 +167,21 @@ function init() {
 }
 
 let subGraphs = [];
+let linesOpacity = 0;
+let linesTargetOpacity = 1;
 
-const SUBDIVIDE_THRESHOLD = 3.0;
+const SUBDIVIDE_THRESHOLD = 4;
 
 function subdivideBlock(shape) {
   const localSegments = shape.map((_, i) => [i, (i + 1) % shape.length]);
+  const offset = params.offset();
 
   const subGraph = new Graph({
-    minDistance: 1,
+    minDistance: 0.1,
     minTwistDistance: 1000,
     minAngle: 1.45,
     maxAngle: 1.55,
-    probability: 0.9,
+    probability: 0.5,
     splitDirection: params.splitDirection(),
     noiseScale: 0,
     onComplete: (g) => {
@@ -190,7 +194,13 @@ function subdivideBlock(shape) {
         const regionShape = region.map((i) => g.vertices[i]);
         const area = Math.abs(PolygonInset.signedArea(regionShape));
         if (area > SUBDIVIDE_THRESHOLD) {
-          subdivideBlock(regionShape);
+          // const shape =
+          //   offset > 0 ? PolygonInset.shrink(regionShape, offset, 2.5) : v;
+          // if (!shape) {
+          //   continue;
+          // }
+          const shape = regionShape;
+          subdivideBlock(shape);
           continue;
         }
         const polygonShape = new Shape(regionShape);
@@ -207,6 +217,7 @@ function subdivideBlock(shape) {
         polygonMesh.castShadow = true;
         polygonMesh.receiveShadow = true;
         polygonMesh.userData.t = 0;
+        polygonMesh.userData.speed = Maf.randomInRange(0.9, 1.1);
         polygonMesh.userData.height = height;
         groupCity.add(polygonMesh);
         faceMeshes.push(polygonMesh);
@@ -227,6 +238,8 @@ function subdivideBlock(shape) {
 effectRAF(() => {
   const greenness = params.greenness();
   const offset = params.offset();
+  linesOpacity = 0;
+  linesTargetOpacity = 1;
 
   if (graph) {
     graph.dispose();
@@ -251,6 +264,7 @@ effectRAF(() => {
     noiseScale: params.noiseScale(),
     noiseRotation: params.noiseRotation(),
     onComplete: (g) => {
+      linesTargetOpacity = 0;
       const extractor = new GraphRegionExtractor(
         graph.vertices,
         graph.segments.map((s) => [s.a, s.b]),
@@ -281,6 +295,7 @@ effectRAF(() => {
           lawn.castShadow = true;
           lawn.receiveShadow = true;
           lawn.userData.t = 0;
+          lawn.userData.speed = Maf.randomInRange(0.9, 1.1);
           lawn.userData.height = height;
           groupCity.add(lawn);
           faceMeshes.push(lawn);
@@ -292,6 +307,25 @@ effectRAF(() => {
     },
   });
   init();
+
+  const groundR = 10 + 0.5;
+  const groundSteps = params.boundarySides();
+  const groundPoints = [];
+  for (let i = 0; i < groundSteps; i++) {
+    const a = Maf.map(0, groundSteps, 0, Maf.TAU, i);
+    groundPoints.push(
+      new Vector3(groundR * Math.cos(a), groundR * Math.sin(a), 0),
+    );
+  }
+  const groundMesh = new Mesh(
+    new ShapeGeometry(new Shape(groundPoints)),
+    new MeshStandardMaterial({ color: 0x4a4a4e }),
+  );
+  groundMesh.receiveShadow = true;
+  groundMesh.userData.t = 1;
+  groundMesh.userData.speed = 0;
+  groupCity.add(groundMesh);
+  faceMeshes.push(groundMesh);
 });
 
 function randomize() {
@@ -331,9 +365,11 @@ render(() => {
   }
 
   for (const mesh of faceMeshes) {
-    mesh.userData.t += dt;
+    mesh.userData.t += dt * mesh.userData.speed * 2;
     mesh.scale.z = Easings.OutBounce(Maf.clamp(mesh.userData.t, 0, 1));
   }
+
+  linesOpacity += (linesTargetOpacity - linesOpacity) * 0.05;
 
   const lines = graph.draw();
   if (lines.segments) {
@@ -348,6 +384,12 @@ render(() => {
     }
     for (const vertex of lines.vertices) {
       group.add(vertex);
+    }
+  }
+  for (const child of group.children) {
+    if (child.material) {
+      child.material.transparent = true;
+      child.material.opacity = linesOpacity;
     }
   }
 
