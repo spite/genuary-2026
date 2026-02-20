@@ -21,7 +21,9 @@ import {
   HemisphereLight,
   DirectionalLight,
   PCFSoftShadowMap,
+  BufferAttribute,
 } from "three";
+import { mergeGeometries } from "third_party/BufferGeometryUtils.js";
 import { Graph } from "./graph.js";
 import { effectRAF } from "reactive";
 import { createPolygonSampler, getColor } from "./utils.js";
@@ -144,6 +146,7 @@ camera.updateProjectionMatrix();
 
 let graph;
 let faceMeshes = [];
+let merged = false;
 
 function init() {
   const vertices = [];
@@ -235,11 +238,84 @@ function subdivideBlock(shape) {
   }
 }
 
+function tryMergeCityMeshes() {
+  if (merged) return;
+  if (!graph || !graph.completed) return;
+  for (const sg of subGraphs) {
+    if (!sg.completed) return;
+  }
+  for (const mesh of faceMeshes) {
+    if (mesh.userData.t < 1) return;
+  }
+
+  const buildingGeos = [];
+  const lawnGeos = [];
+
+  for (const mesh of faceMeshes) {
+    // Ground mesh has speed === 0 and was added last — skip it
+    if (mesh.userData.speed === 0) continue;
+    const color = mesh.material.color;
+    if (color.getHex() === 0xffffff) {
+      buildingGeos.push(mesh.geometry);
+    } else {
+      // Lawn: bake color into vertex colors on a clone
+      const geo = mesh.geometry.clone();
+      const count = geo.attributes.position.count;
+      const colors = new Float32Array(count * 3);
+      for (let i = 0; i < count; i++) {
+        colors[i * 3] = color.r;
+        colors[i * 3 + 1] = color.g;
+        colors[i * 3 + 2] = color.b;
+      }
+      geo.setAttribute("color", new BufferAttribute(colors, 3));
+      lawnGeos.push(geo);
+    }
+  }
+
+  // Remove all animated meshes before adding merged replacements
+  for (const mesh of faceMeshes) {
+    if (mesh.userData.speed === 0) continue;
+    groupCity.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+  }
+  faceMeshes = faceMeshes.filter((m) => m.userData.speed === 0);
+
+  if (buildingGeos.length > 0) {
+    const geo = mergeGeometries(buildingGeos);
+    const mesh = new Mesh(geo, new MeshStandardMaterial({ color: 0xffffff }));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.t = 1;
+    mesh.userData.speed = 0;
+    groupCity.add(mesh);
+    faceMeshes.push(mesh);
+  }
+
+  if (lawnGeos.length > 0) {
+    const geo = mergeGeometries(lawnGeos);
+    const mesh = new Mesh(
+      geo,
+      new MeshStandardMaterial({ vertexColors: true }),
+    );
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.t = 1;
+    mesh.userData.speed = 0;
+    groupCity.add(mesh);
+    faceMeshes.push(mesh);
+    for (const g of lawnGeos) g.dispose();
+  }
+
+  merged = true;
+}
+
 effectRAF(() => {
   const greenness = params.greenness();
   const offset = params.offset();
   linesOpacity = 0;
   linesTargetOpacity = 1;
+  merged = false;
 
   if (graph) {
     graph.dispose();
@@ -364,9 +440,12 @@ render(() => {
     subGraph.update();
   }
 
-  for (const mesh of faceMeshes) {
-    mesh.userData.t += dt * mesh.userData.speed * 2;
-    mesh.scale.z = Easings.OutBounce(Maf.clamp(mesh.userData.t, 0, 1));
+  if (!merged) {
+    for (const mesh of faceMeshes) {
+      mesh.userData.t += dt * mesh.userData.speed * 2;
+      mesh.scale.z = Easings.OutBounce(Maf.clamp(mesh.userData.t, 0, 1));
+    }
+    tryMergeCityMeshes();
   }
 
   linesOpacity += (linesTargetOpacity - linesOpacity) * 0.05;
