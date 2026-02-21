@@ -51,17 +51,17 @@ const defaults = {
   linesPerSeed: 5,
   minDistance: 1.68,
   minTwistDistance: 2,
+  maxHeight: 2,
   angle: [1.42, 1.66],
   probability: 0.13,
   splitDirection: "random",
+  blockMinDistance: 1,
   blockSplitProbability: 0.5,
   subdivideThreshold: 4,
   noiseScale: 1,
   noiseRotation: 0.2,
   offset: 0.1,
   greenness: 0.2,
-  showLines: true,
-  showFaces: !true,
 };
 
 const params = fromDefaults(defaults);
@@ -75,6 +75,7 @@ gui.addSlider("Seeds", params.seeds, 1, 5, 1);
 gui.addSlider("Lines per seed", params.linesPerSeed, 1, 10, 1);
 gui.addSlider("Min. split distance", params.minDistance, 0.1, 2, 0.01);
 gui.addSlider("Min. twist distance", params.minTwistDistance, 0.1, 2, 0.01);
+gui.addSlider("Max. building height", params.maxHeight, 0.1, 5, 0.1);
 gui.addRangeSlider("Split angle range", params.angle, 0, Math.PI, 0.01);
 gui.addSlider("Split probability", params.probability, 0, 1, 0.001);
 gui.addSelect("Split direction", params.splitDirection, [
@@ -84,6 +85,7 @@ gui.addSelect("Split direction", params.splitDirection, [
   ["both", "Both"],
 ]);
 gui.addSlider("Offset", params.offset, 0, 0.3, 0.001);
+gui.addSlider("Block .min distance", params.blockMinDistance, 0.1, 2, 0.01);
 gui.addSlider(
   "Block split probability",
   params.blockSplitProbability,
@@ -95,18 +97,10 @@ gui.addSlider("Subdivide threshold", params.subdivideThreshold, 1, 5, 0.1);
 gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
 gui.addSlider("Noise rotation", params.noiseRotation, 0, 1, 0.01);
 gui.addSlider("Greenness", params.greenness, 0, 1, 0.001);
-gui.addCheckbox("Show lines", params.showLines, (e) => {
-  groupLines.visible = e;
-});
-gui.addCheckbox(
-  "Show faces",
-  params.showFaces,
-  (e) => (groupFaces.visible = e),
-);
 gui.addButton("Random", randomize);
 gui.addSeparator();
 gui.addText(
-  "<p>Press R to shuffle the objects.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>",
+  "<p>Press R to generate a new city.</p><p>Press Space to toggle rotation.</p><p>Press Tab to toggle this GUI.</p>",
 );
 gui.show();
 
@@ -117,13 +111,7 @@ renderer.shadowMap.type = PCFSoftShadowMap;
 
 const scene = new Scene();
 const group = new Group();
-const groupFaces = new Group();
-groupFaces.visible = params.showFaces();
-const groupLines = new Group();
-groupLines.visible = params.showLines();
 const groupCity = new Group();
-group.add(groupFaces);
-group.add(groupLines);
 scene.add(groupCity);
 scene.add(group);
 group.rotation.x = -Math.PI / 2;
@@ -188,9 +176,11 @@ function subdivideBlock(shape) {
   const offset = params.offset();
   const subdivideThreshold = params.subdivideThreshold();
   const blockSplitProbability = params.blockSplitProbability();
+  const maxHeight = params.maxHeight();
+  const blockMinDistance = params.blockMinDistance();
 
   const subGraph = new Graph({
-    minDistance: 0.1,
+    minDistance: blockMinDistance,
     minTwistDistance: 1000,
     minAngle: 1.45,
     maxAngle: 1.55,
@@ -217,7 +207,10 @@ function subdivideBlock(shape) {
           continue;
         }
         const polygonShape = new Shape(regionShape);
-        const height = Math.min(Math.random() * Math.sqrt(area) * 2 + 0.1, 5);
+        const height = Math.min(
+          Math.random() * Math.sqrt(area) * maxHeight + 0.1,
+          5,
+        );
         const geometry = new ExtrudeGeometry(polygonShape, {
           depth: height,
           bevelEnabled: true,
@@ -325,6 +318,8 @@ effectRAF(() => {
   const offset = params.offset();
   const subdivideThreshold = params.subdivideThreshold();
   const blockSplitProbability = params.blockSplitProbability();
+  const maxHeight = params.maxHeight();
+  const blockMinDistance = params.blockMinDistance();
 
   linesOpacity = 0;
   linesTargetOpacity = 1;
@@ -425,7 +420,13 @@ function randomize() {
   params.angle.set([Math.PI / 2 - d, Math.PI / 2 + d]);
   params.probability.set(Maf.randomInRange(0, 0.7));
   params.noiseScale.set(Maf.randomInRange(0, 10));
+  params.noiseRotation.set(Maf.randomInRange(0, 1));
   params.greenness.set(Maf.randomInRange(0.2, 0.8));
+  params.offset.set(Maf.randomInRange(0.05, 0.1));
+  params.subdivideThreshold.set(Maf.randomInRange(2, 4));
+  params.blockMinDistance.set(Maf.randomInRange(0.25, 0.75));
+  params.blockSplitProbability.set(Maf.randomInRange(0.3, 0.7));
+  params.maxHeight.set(Maf.randomInRange(1, 3));
 }
 
 window.addEventListener("keydown", (e) => {
