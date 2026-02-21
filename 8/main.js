@@ -54,9 +54,11 @@ const defaults = {
   angle: [1.42, 1.66],
   probability: 0.13,
   splitDirection: "random",
+  blockSplitProbability: 0.5,
+  subdivideThreshold: 4,
   noiseScale: 1,
   noiseRotation: 0.2,
-  offset: 0.05,
+  offset: 0.1,
   greenness: 0.2,
   showLines: true,
   showFaces: !true,
@@ -82,6 +84,14 @@ gui.addSelect("Split direction", params.splitDirection, [
   ["both", "Both"],
 ]);
 gui.addSlider("Offset", params.offset, 0, 0.3, 0.001);
+gui.addSlider(
+  "Block split probability",
+  params.blockSplitProbability,
+  0,
+  1,
+  0.001,
+);
+gui.addSlider("Subdivide threshold", params.subdivideThreshold, 1, 5, 0.1);
 gui.addSlider("Noise scale", params.noiseScale, 0, 10, 0.001);
 gui.addSlider("Noise rotation", params.noiseRotation, 0, 1, 0.01);
 gui.addSlider("Greenness", params.greenness, 0, 1, 0.001);
@@ -138,7 +148,7 @@ hemiLight.groundColor.setHSL(0.095, 1, 0.75);
 hemiLight.position.set(0, 50, 0);
 scene.add(hemiLight);
 
-camera.position.set(1, 1, 1).multiplyScalar(20);
+camera.position.set(1, 2, 1).normalize().multiplyScalar(40);
 camera.lookAt(0, 0, 0);
 camera.near = 0.1;
 camera.far = 200;
@@ -173,18 +183,18 @@ let subGraphs = [];
 let linesOpacity = 0;
 let linesTargetOpacity = 1;
 
-const SUBDIVIDE_THRESHOLD = 4;
-
 function subdivideBlock(shape) {
   const localSegments = shape.map((_, i) => [i, (i + 1) % shape.length]);
   const offset = params.offset();
+  const subdivideThreshold = params.subdivideThreshold();
+  const blockSplitProbability = params.blockSplitProbability();
 
   const subGraph = new Graph({
     minDistance: 0.1,
     minTwistDistance: 1000,
     minAngle: 1.45,
     maxAngle: 1.55,
-    probability: 0.5,
+    probability: blockSplitProbability,
     splitDirection: params.splitDirection(),
     noiseScale: 0,
     onComplete: (g) => {
@@ -196,7 +206,7 @@ function subdivideBlock(shape) {
       for (const region of regions) {
         const regionShape = region.map((i) => g.vertices[i]);
         const area = Math.abs(PolygonInset.signedArea(regionShape));
-        if (area > SUBDIVIDE_THRESHOLD) {
+        if (area > subdivideThreshold) {
           // const shape =
           //   offset > 0 ? PolygonInset.shrink(regionShape, offset, 2.5) : v;
           // if (!shape) {
@@ -313,6 +323,9 @@ function tryMergeCityMeshes() {
 effectRAF(() => {
   const greenness = params.greenness();
   const offset = params.offset();
+  const subdivideThreshold = params.subdivideThreshold();
+  const blockSplitProbability = params.blockSplitProbability();
+
   linesOpacity = 0;
   linesTargetOpacity = 1;
   merged = false;
