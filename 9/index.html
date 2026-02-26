@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>Genuary 2026 - 7</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="../css/styles.css"
+      media="screen"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      href="../css/gui.css"
+      media="screen"
+    />
+    <link
+      href="https://fonts.googleapis.com/css?family=Open+Sans"
+      rel="stylesheet"
+    />
+  </head>
+  <script type="importmap">
+    {
+      "imports": {
+        "maf": "../modules/maf.js",
+        "reactive": "../modules/reactive.js",
+        "gui": "../modules/gui.js",
+        "common": "../modules/common.js",
+        "three": "../third_party/three.module.min.js",
+        "three/": "../third_party/",
+        "third_party/": "../third_party/",
+        "easings": "../modules/easings.js",
+        "shaders/": "../shaders/",
+        "modules/": "../modules/"
+      }
+    }
+  </script>
+  <script type="module" src="main.js"></script>
+  <body>
+    <div id="main-gui">
+      <div id="randomize-button" class="button">
+        <img src="../assets/randomize.svg" alt="Randomize" />
+      </div>
+      <div id="gui-container"></div>
+    </div>
+  </body>
+</html>
