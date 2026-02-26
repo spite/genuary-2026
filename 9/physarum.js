@@ -48,8 +48,13 @@ float hash(float n) {
 
 float sense(vec2 pos, float angle, float offset) {
   float sa = angle + offset;
-  vec2 dir = vec2(cos(sa), sin(sa));
-  vec2 sensorPos = fract(pos + dir * sensorDist / resolution);
+  float lat = (pos.y - 0.5) * 3.14159265;
+  float cosLat = max(cos(lat), 0.05);
+  vec2 dir = vec2(cos(sa) / cosLat, sin(sa));
+  vec2 sensorPos = vec2(
+    fract(pos.x + dir.x * sensorDist / resolution.x),
+    clamp(pos.y + dir.y * sensorDist / resolution.y, 0.0, 1.0)
+  );
   return texture(trailMap, sensorPos).r;
 }
 
@@ -70,13 +75,13 @@ void main() {
 
     vec2 center = mouseSpawn ? mousePos : vec2(0.5);
 
-    if (startPosType == 0) {
-      float r = sqrt(h1) * 0.2;
-      float theta = h2 * 6.283185;
-      pos = center + vec2(r * cos(theta), r * sin(theta));
-    } else {
+    // if (startPosType == 0) {
+    //   float r = sqrt(h1) * 0.2;
+    //   float theta = h2 * 6.283185;
+    //   pos = center + vec2(r * cos(theta), r * sin(theta));
+    // } else {
       pos = vec2(h1, h2);
-    }
+    // }
 
     angle = h3 * 6.283185;
     life = hash(seed + 3.0) * 0.5 + 0.5;
@@ -96,8 +101,13 @@ void main() {
       angle += turnSpeed * deltaTime;
     }
 
-    vec2 dir = vec2(cos(angle), sin(angle));
-    pos = fract(pos + dir * moveSpeed * deltaTime / resolution);
+    float lat = (pos.y - 0.5) * 3.14159265;
+    float cosLat = max(cos(lat), 0.05);
+    vec2 dir = vec2(cos(angle) / cosLat, sin(angle));
+    pos.x = fract(pos.x + dir.x * moveSpeed * deltaTime / resolution.x);
+    pos.y =       pos.y + dir.y * moveSpeed * deltaTime / resolution.y;
+    if (pos.y < 0.0) { pos.y = -pos.y;      angle = 3.14159265 - angle; }
+    if (pos.y > 1.0) { pos.y = 2.0 - pos.y; angle = 3.14159265 - angle; }
   }
 
   fragColor = vec4(pos, angle, life);
@@ -305,10 +315,8 @@ class PhysarumSimulationPass {
   createInitTexture() {
     const data = new Float32Array(this.width * this.height * 4);
     for (let i = 0; i < this.width * this.height; i++) {
-      const r = Math.sqrt(Math.random()) * 0.2;
-      const theta = Math.random() * Math.PI * 2;
-      data[i * 4 + 0] = 0.5 + r * Math.cos(theta);
-      data[i * 4 + 1] = 0.5 + r * Math.sin(theta);
+      data[i * 4 + 0] = Math.random();
+      data[i * 4 + 1] = Math.random();
       data[i * 4 + 2] = Math.random() * Math.PI * 2;
       data[i * 4 + 3] = Math.random();
     }
