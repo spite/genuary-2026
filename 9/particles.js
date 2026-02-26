@@ -39,22 +39,26 @@ uniform ivec2 texSize;
 out vec2 vDisc;
 
 float parabola(float x) {
-    return 4.0 * x * (1.0 - x);
+  return 4.0 * x * (1.0 - x);
 }
 
 void main() {
   float tx = float(gl_InstanceID % texSize.x) / float(texSize.x);
   float ty = float(gl_InstanceID / texSize.x) / float(texSize.y);
-  vec2 uv = vec2(tx, ty) + 0.5 / float(texSize);
+  vec2 uv = vec2(tx, ty) + 0.5 / vec2(texSize);
 
   vec4 data = texture(positions, uv);
   vec2 agentPos = data.xy;
   float life = data.w;
 
-  vec3 worldPos = life > 0.0 ? vec3(agentPos * 2.0 - 1.0, 0.0) : vec3(1000.0);
+  float lon = agentPos.x * 6.28318530;
+  float lat = (agentPos.y - 0.5) * 3.14159265;
+  vec3 worldPos = life > 0.0
+    ? vec3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon)) * 1.01
+    : vec3(1000.0);
 
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
-  vec2 ndcOffset = position.xy * pointSize * parabola(life ) * 2.0 / resolution;
+  vec2 ndcOffset = position.xy * pointSize * parabola(life) * 2.0 / resolution;
   vDisc = position.xy;
   gl_Position = vec4(clip.xy + ndcOffset * clip.w, clip.z, clip.w);
 }
@@ -69,12 +73,12 @@ class SceneParticles {
         resolution: { value: new Vector2(width, height) },
         texSize: { value: new Vector2(texWidth, texHeight) },
       },
-      vertexShader: vertexShader,
+      vertexShader,
       fragmentShader,
       glslVersion: GLSL3,
       transparent: true,
       blending: AdditiveBlending,
-      depthTest: false,
+      depthTest: true,
     });
 
     this.mesh = new InstancedMesh(
