@@ -13,9 +13,9 @@ import { Scene, Vector2 } from "three";
 import { PhysarumSimulationPass } from "./physarum.js";
 import { SceneParticles } from "./particles.js";
 
-const physarumPass = new PhysarumSimulationPass(1024, 1024);
+const physarumPass = new PhysarumSimulationPass(2048, 1024);
 const sceneParticles = new SceneParticles(
-  1024,
+  2048,
   1024,
   window.innerWidth,
   window.innerHeight,
@@ -109,6 +109,7 @@ function randomize() {
 }
 
 onResize(() => {
+  // physarumPass.setSize(renderer, window.innerWidth, window.innerHeight);
   sceneParticles.setSize(renderer, window.innerWidth, window.innerHeight);
 });
 
