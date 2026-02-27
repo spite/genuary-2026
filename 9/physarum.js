@@ -265,8 +265,8 @@ class PhysarumSimulationPass {
 
     this.trailPass = new ShaderPingPongPass(trailMat, {
       type: HalfFloatType,
-      minFilter: NearestFilter,
-      magFilter: NearestFilter,
+      // minFilter: NearestFilter,
+      // magFilter: NearestFilter,
       wrapS: RepeatWrapping,
       wrapT: RepeatWrapping,
       depthBuffer: false,
