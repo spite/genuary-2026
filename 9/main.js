@@ -22,7 +22,7 @@ const sceneParticles = new SceneParticles(
 );
 
 const scene = new Scene();
-scene.add(sceneParticles.mesh);
+scene.add(sceneParticles.group);
 camera.position.set(0, 0, 3);
 
 const simU = physarumPass.simPass.shader.uniforms;
@@ -125,7 +125,10 @@ render(() => {
 
   if (running) {
     physarumPass.render(renderer);
-    sceneParticles.update(physarumPass.simPass.texture);
+    sceneParticles.update(
+      physarumPass.simPass.texture,
+      physarumPass.trailPass.texture,
+    );
   }
   physarumPass.displayPass.render(renderer, true);
   renderer.render(scene, camera);
