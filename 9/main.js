@@ -6,6 +6,7 @@ import {
   running,
   controls,
   onResize,
+  clock,
 } from "common";
 import { effectRAF } from "reactive";
 import GUI from "gui";
@@ -15,8 +16,6 @@ import { SceneParticles } from "./particles.js";
 
 const physarumPass = new PhysarumSimulationPass(2048, 1024);
 const sceneParticles = new SceneParticles(
-  2048,
-  1024,
   window.innerWidth,
   window.innerHeight,
 );
@@ -123,12 +122,16 @@ document
 render(() => {
   controls.update();
 
+  const dt = clock.getDelta();
+
   if (running) {
     physarumPass.render(renderer);
     sceneParticles.update(
       physarumPass.simPass.texture,
       physarumPass.trailPass.texture,
     );
+
+    scene.rotation.y += dt / 20;
   }
   physarumPass.displayPass.render(renderer, true);
   renderer.render(scene, camera);
