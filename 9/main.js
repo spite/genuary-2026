@@ -105,7 +105,7 @@ effectRAF(() => {
 });
 
 const gui = new GUI(
-  "Physarum Simulation",
+  "9. Crazy automaton. Cellular automata with crazy rules.",
   document.querySelector("#gui-container"),
 );
 
