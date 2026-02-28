@@ -62,11 +62,11 @@ const defaults = {
   blurRadius: 70,
   normalBlurRadius: 2,
   noiseScale: 3.0,
-  noiseStrength: 0.2,
   trailScale: 100.0,
-  sssStrength: 0.5,
-  sssDensity: 0.2,
-  sssPower: 4.0,
+  sssStrength: 0.15,
+  sssDensity: 0.05,
+  sssPower: 3.0,
+  sssMix: 0.5,
   debugView: "none",
 };
 
@@ -92,14 +92,13 @@ effectRAF(() => {
   sceneParticles.normalBlurHMat.uniforms.blurRadius.value = nr;
   sceneParticles.normalBlurVMat.uniforms.blurRadius.value = nr;
   sceneParticles.sphereMat.uniforms.noiseScale.value = params.noiseScale();
-  sceneParticles.sphereMat.uniforms.noiseStrength.value =
-    params.noiseStrength();
   const ts = params.trailScale();
   sceneParticles.sphereMat.uniforms.trailScale.value = ts;
   sceneParticles.debugMat.uniforms.trailScale.value = ts;
   sceneParticles.sphereMat.uniforms.sssStrength.value = params.sssStrength();
   sceneParticles.sphereMat.uniforms.sssDensity.value = params.sssDensity();
   sceneParticles.sphereMat.uniforms.sssPower.value = params.sssPower();
+  sceneParticles.sphereMat.uniforms.sssMix.value = params.sssMix();
   const dv = params.debugView();
   if (dv === "none") sceneParticles.setDebugView(null);
   else if (dv === "trail") sceneParticles.setDebugView(0);
@@ -123,11 +122,11 @@ gui.addSlider("Displacement", params.displacementOffset, -1, 1, 0.01);
 gui.addSlider("Blur Radius", params.blurRadius, 1, 100, 1);
 gui.addSlider("Normal Blur", params.normalBlurRadius, 1, 30, 1);
 gui.addSlider("Noise Scale", params.noiseScale, 0.5, 20, 0.5);
-gui.addSlider("Noise Strength", params.noiseStrength, 0, 2, 0.01);
 gui.addSlider("Trail Scale", params.trailScale, 1, 500, 1);
-gui.addSlider("SSS Strength", params.sssStrength, 0, 3, 0.01);
-gui.addSlider("SSS Density", params.sssDensity, 0, 1, 0.01);
+gui.addSlider("SSS Strength", params.sssStrength, 0, 0.5, 0.005);
+gui.addSlider("SSS Density", params.sssDensity, 0, 0.2, 0.005);
 gui.addSlider("SSS Power", params.sssPower, 1, 16, 0.1);
+gui.addSlider("SSS Mix", params.sssMix, 0, 1, 0.01);
 gui.addSelect("Spawn", params.startPosType, [
   ["0", "Circle"],
   ["1", "Full Plane"],
