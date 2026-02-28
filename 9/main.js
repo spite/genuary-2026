@@ -29,7 +29,7 @@ sceneParticles.sphereMat.envMap = envMap;
 
 const scene = new Scene();
 scene.add(sceneParticles.group);
-camera.position.set(0, 0, 3);
+camera.position.set(0, 0, 4);
 
 const light = new DirectionalLight(0xffffff, 3);
 light.position.set(3, 6, 3);
@@ -57,11 +57,9 @@ const defaults = {
   decayRate: 0.1,
   diffuseRate: 0.41,
   pointSize: 1.0,
-  startPosType: "1",
   displacementOffset: -0.5,
   blurRadius: 70,
   normalBlurRadius: 2,
-  noiseScale: 3.0,
   trailScale: 100.0,
   sssStrength: 0.15,
   sssDensity: 0.05,
@@ -82,7 +80,6 @@ effectRAF(() => {
   trailU.diffuseRate.value = params.diffuseRate();
   depositU.pointSize.value = params.pointSize();
   sceneParticles.mat.uniforms.pointSize.value = params.pointSize();
-  simU.startPosType.value = parseInt(params.startPosType());
   sceneParticles.sphereMat.uniforms.displacementOffset.value =
     params.displacementOffset();
   const r = Math.round(params.blurRadius());
@@ -91,7 +88,6 @@ effectRAF(() => {
   const nr = Math.round(params.normalBlurRadius());
   sceneParticles.normalBlurHMat.uniforms.blurRadius.value = nr;
   sceneParticles.normalBlurVMat.uniforms.blurRadius.value = nr;
-  sceneParticles.sphereMat.uniforms.noiseScale.value = params.noiseScale();
   const ts = params.trailScale();
   sceneParticles.sphereMat.uniforms.trailScale.value = ts;
   sceneParticles.debugMat.uniforms.trailScale.value = ts;
@@ -121,16 +117,12 @@ gui.addSlider("Point Size", params.pointSize, 0.1, 5, 0.1);
 gui.addSlider("Displacement", params.displacementOffset, -1, 1, 0.01);
 gui.addSlider("Blur Radius", params.blurRadius, 1, 100, 1);
 gui.addSlider("Normal Blur", params.normalBlurRadius, 1, 30, 1);
-gui.addSlider("Noise Scale", params.noiseScale, 0.5, 20, 0.5);
 gui.addSlider("Trail Scale", params.trailScale, 1, 500, 1);
 gui.addSlider("SSS Strength", params.sssStrength, 0, 0.5, 0.005);
 gui.addSlider("SSS Density", params.sssDensity, 0, 0.2, 0.005);
 gui.addSlider("SSS Power", params.sssPower, 1, 16, 0.1);
 gui.addSlider("SSS Mix", params.sssMix, 0, 1, 0.01);
-gui.addSelect("Spawn", params.startPosType, [
-  ["0", "Circle"],
-  ["1", "Full Plane"],
-]);
+
 gui.addSeparator();
 gui.addSelect("Debug View", params.debugView, [
   ["none", "PBR"],
@@ -157,17 +149,15 @@ renderer.domElement.addEventListener(
   () => (simU.mouseSpawn.value = false),
 );
 
-const rnd = (min, max, dec = 2) =>
-  parseFloat((min + Math.random() * (max - min)).toFixed(dec));
-
 function randomize() {
-  params.sensorAngle.set(rnd(0.1, 1.5));
-  params.sensorDist.set(rnd(5, 50, 0));
-  params.turnSpeed.set(rnd(1, 30, 1));
-  params.moveSpeed.set(rnd(20, 150, 0));
-  params.lifeDecay.set(rnd(0.01, 0.3));
-  params.decayRate.set(rnd(0.01, 0.15, 3));
-  params.diffuseRate.set(rnd(0.1, 0.9));
+  params.sensorAngle.set(Maf.randomInRange(0.1, 1.5));
+  params.sensorDist.set(Maf.randomInRange(5, 50));
+  params.turnSpeed.set(Maf.randomInRange(1, 30));
+  params.moveSpeed.set(Maf.randomInRange(20, 150));
+  params.lifeDecay.set(Maf.randomInRange(0.01, 0.3));
+  params.decayRate.set(Maf.randomInRange(0.01, 0.15));
+  params.diffuseRate.set(Maf.randomInRange(0.1, 0.9));
+  // params.displacementOffset.set(Maf.randomInRange(-1, 1));
 }
 
 onResize(() => {
