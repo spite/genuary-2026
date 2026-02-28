@@ -35,9 +35,6 @@ uniform float sensorDist;
 uniform float turnSpeed;
 uniform float moveSpeed;
 uniform float lifeDecay;
-uniform int startPosType;
-uniform bool mouseSpawn;
-uniform vec2 mousePos;
 uniform float randomSeed;
 
 out vec4 fragColor;
@@ -73,15 +70,7 @@ void main() {
     float h2 = hash(seed + 1.0);
     float h3 = hash(seed + 2.0);
 
-    vec2 center = mouseSpawn ? mousePos : vec2(0.5);
-
-    // if (startPosType == 0) {
-    //   float r = sqrt(h1) * 0.2;
-    //   float theta = h2 * 6.283185;
-    //   pos = center + vec2(r * cos(theta), r * sin(theta));
-    // } else {
-      pos = vec2(h1, h2);
-    // }
+    pos = vec2(h1, h2);
 
     angle = h3 * 6.283185;
     life = hash(seed + 3.0) * 0.5 + 0.5;
@@ -137,11 +126,8 @@ void main() {
   vec2 pos = data.xy;
   float life = data.w;
 
-  // Dead agents are moved off-screen rather than collapsed to avoid degenerate triangles.
   vec2 center = life > 0.0 ? pos * 2.0 - 1.0 : vec2(10.0);
 
-  // position.xy is [-1, 1] from PlaneGeometry(2,2).
-  // Scale by pointSize pixels then convert to NDC: * 2 / resolution.
   vec2 offset = position.xy * pointSize * 2.0 / resolution;
 
   vDisc = position.xy;
@@ -156,7 +142,6 @@ in vec2 vDisc;
 out vec4 fragColor;
 
 void main() {
-  // vDisc is [-1, 1]; length == 1 at the circle edge, > 1 at quad corners.
   float dist = length(vDisc);
   float fw = fwidth(dist);
   float alpha = 1.0 - smoothstep(1.0 - fw, 1.0 + fw, dist);
@@ -229,9 +214,6 @@ class PhysarumSimulationPass {
         turnSpeed: { value: 10.0 },
         moveSpeed: { value: 100.0 },
         lifeDecay: { value: 0.05 },
-        startPosType: { value: 0 },
-        mouseSpawn: { value: false },
-        mousePos: { value: new Vector2(0.5, 0.5) },
         randomSeed: { value: Math.random() },
       },
       vertexShader: orthoVertexShader,
@@ -345,7 +327,7 @@ class PhysarumSimulationPass {
     this.simPass.render(renderer);
 
     this.depositMat.uniforms.positions.value = this.simPass.texture;
-    this.displayPass.shader.uniforms.tTrail.value = this.trailPass.texture;
+    // this.displayPass.shader.uniforms.tTrail.value = this.trailPass.texture;
 
     renderer.setRenderTarget(this.trailPass.current);
     renderer.autoClear = false;
