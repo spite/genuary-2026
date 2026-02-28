@@ -46,21 +46,28 @@ sceneParticles.syncMaterial(renderer, scene);
 const simU = physarumPass.simPass.shader.uniforms;
 const trailU = physarumPass.trailPass.shader.uniforms;
 const depositU = physarumPass.depositMat.uniforms;
-renderer.setClearColor(0x000000, 1);
+renderer.setClearColor(0xb70000, 1);
 
 const defaults = {
-  sensorAngle: 0.4,
-  sensorDist: 15.0,
-  turnSpeed: 10.0,
-  moveSpeed: 100.0,
-  lifeDecay: 0.05,
-  decayRate: 0.05,
-  diffuseRate: 0.5,
+  sensorAngle: 0.71,
+  sensorDist: 28.0,
+  turnSpeed: 25.6,
+  moveSpeed: 89.0,
+  lifeDecay: 0.23,
+  decayRate: 0.1,
+  diffuseRate: 0.41,
   pointSize: 1.0,
   startPosType: "1",
-  displacementOffset: 0.0,
-  blurRadius: 20,
-  normalBlurRadius: 5,
+  displacementOffset: -0.5,
+  blurRadius: 70,
+  normalBlurRadius: 2,
+  noiseScale: 3.0,
+  noiseStrength: 0.2,
+  trailScale: 100.0,
+  sssStrength: 0.5,
+  sssDensity: 0.2,
+  sssPower: 4.0,
+  debugView: "none",
 };
 
 const params = fromDefaults(defaults);
@@ -84,6 +91,19 @@ effectRAF(() => {
   const nr = Math.round(params.normalBlurRadius());
   sceneParticles.normalBlurHMat.uniforms.blurRadius.value = nr;
   sceneParticles.normalBlurVMat.uniforms.blurRadius.value = nr;
+  sceneParticles.sphereMat.uniforms.noiseScale.value = params.noiseScale();
+  sceneParticles.sphereMat.uniforms.noiseStrength.value =
+    params.noiseStrength();
+  const ts = params.trailScale();
+  sceneParticles.sphereMat.uniforms.trailScale.value = ts;
+  sceneParticles.debugMat.uniforms.trailScale.value = ts;
+  sceneParticles.sphereMat.uniforms.sssStrength.value = params.sssStrength();
+  sceneParticles.sphereMat.uniforms.sssDensity.value = params.sssDensity();
+  sceneParticles.sphereMat.uniforms.sssPower.value = params.sssPower();
+  const dv = params.debugView();
+  if (dv === "none") sceneParticles.setDebugView(null);
+  else if (dv === "trail") sceneParticles.setDebugView(0);
+  else sceneParticles.setDebugView(1);
 });
 
 const gui = new GUI(
@@ -100,13 +120,24 @@ gui.addSlider("Decay Rate", params.decayRate, 0, 0.2, 0.001);
 gui.addSlider("Diffuse Rate", params.diffuseRate, 0, 1, 0.01);
 gui.addSlider("Point Size", params.pointSize, 0.1, 5, 0.1);
 gui.addSlider("Displacement", params.displacementOffset, -1, 1, 0.01);
-gui.addSlider("Blur Radius", params.blurRadius, 1, 30, 1);
+gui.addSlider("Blur Radius", params.blurRadius, 1, 100, 1);
 gui.addSlider("Normal Blur", params.normalBlurRadius, 1, 30, 1);
+gui.addSlider("Noise Scale", params.noiseScale, 0.5, 20, 0.5);
+gui.addSlider("Noise Strength", params.noiseStrength, 0, 2, 0.01);
+gui.addSlider("Trail Scale", params.trailScale, 1, 500, 1);
+gui.addSlider("SSS Strength", params.sssStrength, 0, 3, 0.01);
+gui.addSlider("SSS Density", params.sssDensity, 0, 1, 0.01);
+gui.addSlider("SSS Power", params.sssPower, 1, 16, 0.1);
 gui.addSelect("Spawn", params.startPosType, [
   ["0", "Circle"],
   ["1", "Full Plane"],
 ]);
 gui.addSeparator();
+gui.addSelect("Debug View", params.debugView, [
+  ["none", "PBR"],
+  ["trail", "Trail Map"],
+  ["blurred", "Blurred Trail"],
+]);
 gui.addButton("Randomize", randomize);
 gui.show();
 
@@ -160,7 +191,7 @@ render(() => {
   if (running) {
     physarumPass.render(renderer);
 
-    scene.rotation.y += dt / 20;
+    sceneParticles.group.rotation.y += dt / 20;
   }
 
   sceneParticles.update(
