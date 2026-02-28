@@ -15,7 +15,6 @@ import {
 import { Material } from "modules/material.js";
 import { ShaderPass } from "modules/shader-pass.js";
 import { shader as orthoVS } from "shaders/ortho-vs.js";
-import { shader as worleyNoise } from "shaders/worleyNoise3D.js";
 import { createNormalizedCubeSphere } from "modules/normalized-cube-sphere-geometry.js";
 
 const fragmentShader = `
@@ -180,17 +179,40 @@ void main() {
 `;
 
 const sphereFragMain = `
-${worleyNoise}
+float _h(vec3 p) {
+  p = fract(p * vec3(127.1, 311.7, 74.7));
+  p += dot(p, p.zxy + 31.32);
+  return fract((p.x + p.y) * p.z);
+}
+float valueNoise(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(_h(i), _h(i+vec3(1,0,0)), u.x), mix(_h(i+vec3(0,1,0)), _h(i+vec3(1,1,0)), u.x), u.y),
+    mix(mix(_h(i+vec3(0,0,1)), _h(i+vec3(1,0,1)), u.x), mix(_h(i+vec3(0,1,1)), _h(i+vec3(1,1,1)), u.x), u.y),
+    u.z
+  );
+}
 
 uniform sampler2D tTrailNormal;
 uniform float displacementOffset;
 uniform float trailScale;
 uniform float noiseScale;
-uniform float noiseStrength;
 uniform vec3 sssColor;
 uniform float sssStrength;
-uniform float sssDensity;  // how much internal noise darkens the SSS
+uniform float sssDensity;
 uniform float sssPower;
+uniform float sssMix;
+
+vec3 sss(float ndl, float ir) {
+  float pndl = clamp( ndl, 0.0, 1.0);
+  float nndl = clamp(-ndl, 0.0, 1.0);
+  return vec3(pndl) + sssColor * 0.25
+    * (1.0 - pndl) * (1.0 - pndl)
+    * pow(1.0 - nndl, sssPower / (ir + 0.001))
+    * clamp(ir - 0.04, 0.0, 1.0);
+}
 
 void main() {
   mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
@@ -204,27 +226,24 @@ void main() {
   vec3 mapN = normalize(vec3((hL - hR) * displacementOffset, (hD - hU) * displacementOffset, 50.0));
   worldNormal = perturbNormal2Arb(vWorldPosition, worldNormal, vUv, mapN);
 
-  vec3 noiseP = vPosition * noiseScale;
-  float eps = 0.1;
-  vec3 noiseGrad = vec3(
-    worley(noiseP + vec3(eps, 0.0, 0.0)) - worley(noiseP - vec3(eps, 0.0, 0.0)),
-    worley(noiseP + vec3(0.0, eps, 0.0)) - worley(noiseP - vec3(0.0, eps, 0.0)),
-    worley(noiseP + vec3(0.0, 0.0, eps)) - worley(noiseP - vec3(0.0, 0.0, eps))
-  ) / (2.0 * eps);
-  noiseGrad -= dot(noiseGrad, worldNormal) * worldNormal;
   float trailMask = 1.0 - clamp(texture(tTrailNormal, vUv).r / trailScale, 0.0, 1.0);
-  worldNormal = normalize(worldNormal - noiseGrad * noiseStrength * trailMask);
 
-  vec3 V = normalize(viewMatrixInverse * normalize(vViewPosition));
-  float NdotV = clamp(dot(worldNormal, V), 0.0, 1.0);
-  float backScatter = pow(1.0 - NdotV, sssPower);
-
-  float internalDensity = 1.0 - worley(vPosition * noiseScale * 0.35);
-  float thinness = trailMask * mix(1.0, internalDensity, sssDensity);
+  float ir = sssStrength + trailMask * sssDensity;
 
   vec4 diffuseColor = vec4(color, 1.0);
-  vec3 outgoingLight = shade(vWorldPosition, worldNormal, vUv, diffuseColor, roughness, metalness);
-  outgoingLight += backScatter * thinness * sssStrength * sssColor;
+  vec3 pbrLight = shade(vWorldPosition, worldNormal, vUv, diffuseColor, roughness, metalness);
+
+  vec3 sssLight = pbrLight;
+  #if NUM_DIR_LIGHTS > 0
+    vec3 L = normalize(directionalLights[0].direction);
+    float ndl  = dot(worldNormal, L);
+    float bndl = dot(normalize(vWorldPosition), L);
+    vec3 ss  = sss(ndl,  ir);
+    vec3 bss = sss(bndl, ir);
+    sssLight = color * mix(bss, ss, trailMask) * directionalLights[0].color;
+  #endif
+
+  vec3 outgoingLight = mix(pbrLight, sssLight, sssMix);
   outgoingLight = ACESFilmicToneMapping(outgoingLight);
   fragColor = linearToSRGB(vec4(outgoingLight, 1.0));
 }
@@ -344,11 +363,11 @@ class SceneParticles {
         displacementOffset: { value: 0.0 },
         trailScale: { value: 200.0 },
         noiseScale: { value: 3.0 },
-        noiseStrength: { value: 0.2 },
         sssColor: { value: new Color(1.0, 0.3, 0.1) },
-        sssStrength: { value: 0.5 },
-        sssDensity: { value: 0.7 },
-        sssPower: { value: 4.0 },
+        sssStrength: { value: 0.15 },
+        sssDensity: { value: 0.05 },
+        sssPower: { value: 3.0 },
+        sssMix: { value: 0.5 },
       },
       main: sphereFragMain,
     });
