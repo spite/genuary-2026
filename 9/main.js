@@ -15,7 +15,10 @@ import { PhysarumSimulationPass } from "./physarum.js";
 import { SceneParticles } from "./particles.js";
 import { loadEnvMap } from "modules/material.js";
 
-const physarumPass = new PhysarumSimulationPass(2048, 1024);
+const maxDimension = renderer.capabilities.maxTextureSize;
+const w = maxDimension / 8;
+
+const physarumPass = new PhysarumSimulationPass(w, w / 2);
 const sceneParticles = new SceneParticles(
   window.innerWidth,
   window.innerHeight,
