@@ -218,6 +218,8 @@ void main() {
   mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
   vec3 worldNormal = normalize(viewMatrixInverse * vNormal);
 
+  // find a cheaper noise for the bumps
+  
   vec2 ts = 1.0 / vec2(textureSize(tTrailNormal, 0));
   float hR = texture(tTrailNormal, vUv + vec2(ts.x, 0.0)).r;
   float hL = texture(tTrailNormal, vUv - vec2(ts.x, 0.0)).r;
@@ -230,7 +232,8 @@ void main() {
 
   float ir = sssStrength + trailMask * sssDensity;
 
-  vec4 diffuseColor = vec4(color, 1.0);
+  float trail = clamp(texture(tTrailNormal, vUv).r / trailScale, 0.0, 1.0);
+  vec4 diffuseColor = vec4(color, 1.0) * (1.- .5  * trail);
   vec3 pbrLight = shade(vWorldPosition, worldNormal, vUv, diffuseColor, roughness, metalness);
 
   vec3 sssLight = pbrLight;
@@ -353,9 +356,9 @@ class SceneParticles {
     this.sphereMat = new Material({
       vertexShader: vertexShaderSphere,
       uniforms: {
-        color: new Color(1, 0, 0),
+        color: new Color(154 / 255, 8 / 255, 8 / 255),
         roughness: 0.2,
-        metalness: 0.5,
+        metalness: 0,
       },
       customUniforms: {
         tTrailBlurred: { value: this.blurVPass.texture },
