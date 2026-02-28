@@ -6,6 +6,7 @@ import {
   PlaneGeometry,
   Object3D,
   Mesh,
+  BoxGeometry,
   IcosahedronGeometry,
   Color,
   HalfFloatType,
@@ -14,6 +15,8 @@ import {
 import { Material } from "modules/material.js";
 import { ShaderPass } from "modules/shader-pass.js";
 import { shader as orthoVS } from "shaders/ortho-vs.js";
+import { shader as worleyNoise } from "shaders/worleyNoise3D.js";
+import { createNormalizedCubeSphere } from "modules/normalized-cube-sphere-geometry.js";
 
 const fragmentShader = `
 precision highp float;
@@ -132,6 +135,7 @@ uniform mat4 projectionMatrix;
 uniform mat3 normalMatrix;
 uniform sampler2D tTrailBlurred;
 uniform float displacementOffset;
+uniform float trailScale;
 
 in vec3 position;
 in vec3 normal;
@@ -148,15 +152,14 @@ void main() {
   vPosition = position;
 
   vec2 texRes = vec2(textureSize(tTrailBlurred, 0));
-  float trail = clamp(texture(tTrailBlurred, uv).r / 200.0, 0.0, 1.0);
+  float trail = clamp(texture(tTrailBlurred, uv).r / trailScale, 0.0, 1.0);
 
   vec3 p = position * (1.0 + trail * displacementOffset / 10.0);
 
-  // Compute displaced normal from trail gradient
   float epsU = 4.0 / texRes.x;
   float epsV = 4.0 / texRes.y;
-  float trailR = clamp(texture(tTrailBlurred, uv + vec2(epsU, 0.0)).r / 200.0, 0.0, 1.0);
-  float trailU = clamp(texture(tTrailBlurred, uv + vec2(0.0, epsV)).r / 200.0, 0.0, 1.0);
+  float trailR = clamp(texture(tTrailBlurred, uv + vec2(epsU, 0.0)).r / trailScale, 0.0, 1.0);
+  float trailU = clamp(texture(tTrailBlurred, uv + vec2(0.0, epsV)).r / trailScale, 0.0, 1.0);
   float dTrail_du = (trailR - trail) / epsU;
   float dTrail_dv = (trailU - trail) / epsV;
 
@@ -177,8 +180,17 @@ void main() {
 `;
 
 const sphereFragMain = `
+${worleyNoise}
+
 uniform sampler2D tTrailNormal;
 uniform float displacementOffset;
+uniform float trailScale;
+uniform float noiseScale;
+uniform float noiseStrength;
+uniform vec3 sssColor;
+uniform float sssStrength;
+uniform float sssDensity;  // how much internal noise darkens the SSS
+uniform float sssPower;
 
 void main() {
   mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
@@ -192,10 +204,65 @@ void main() {
   vec3 mapN = normalize(vec3((hL - hR) * displacementOffset, (hD - hU) * displacementOffset, 50.0));
   worldNormal = perturbNormal2Arb(vWorldPosition, worldNormal, vUv, mapN);
 
+  vec3 noiseP = vPosition * noiseScale;
+  float eps = 0.1;
+  vec3 noiseGrad = vec3(
+    worley(noiseP + vec3(eps, 0.0, 0.0)) - worley(noiseP - vec3(eps, 0.0, 0.0)),
+    worley(noiseP + vec3(0.0, eps, 0.0)) - worley(noiseP - vec3(0.0, eps, 0.0)),
+    worley(noiseP + vec3(0.0, 0.0, eps)) - worley(noiseP - vec3(0.0, 0.0, eps))
+  ) / (2.0 * eps);
+  noiseGrad -= dot(noiseGrad, worldNormal) * worldNormal;
+  float trailMask = 1.0 - clamp(texture(tTrailNormal, vUv).r / trailScale, 0.0, 1.0);
+  worldNormal = normalize(worldNormal - noiseGrad * noiseStrength * trailMask);
+
+  vec3 V = normalize(viewMatrixInverse * normalize(vViewPosition));
+  float NdotV = clamp(dot(worldNormal, V), 0.0, 1.0);
+  float backScatter = pow(1.0 - NdotV, sssPower);
+
+  float internalDensity = 1.0 - worley(vPosition * noiseScale * 0.35);
+  float thinness = trailMask * mix(1.0, internalDensity, sssDensity);
+
   vec4 diffuseColor = vec4(color, 1.0);
   vec3 outgoingLight = shade(vWorldPosition, worldNormal, vUv, diffuseColor, roughness, metalness);
+  outgoingLight += backScatter * thinness * sssStrength * sssColor;
   outgoingLight = ACESFilmicToneMapping(outgoingLight);
   fragColor = linearToSRGB(vec4(outgoingLight, 1.0));
+}
+`;
+
+const debugVertexShader = `
+precision highp float;
+
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+
+in vec3 position;
+in vec2 uv;
+
+out vec2 vUv;
+
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const debugFragmentShader = `
+precision highp float;
+
+uniform sampler2D tTrail;
+uniform sampler2D tTrailBlurred;
+uniform int debugView; // 0 = raw trail, 1 = blurred trail
+uniform float trailScale;
+
+in vec2 vUv;
+out vec4 fragColor;
+
+void main() {
+  float v = debugView == 0
+    ? clamp(texture(tTrail, vUv).r / 20.0, 0.0, 1.0)
+    : clamp(texture(tTrailBlurred, vUv).r / trailScale, 0.0, 1.0);
+  fragColor = vec4(vec3(v), 1.0);
 }
 `;
 
@@ -267,7 +334,7 @@ class SceneParticles {
     this.sphereMat = new Material({
       vertexShader: vertexShaderSphere,
       uniforms: {
-        color: new Color(1, 1, 1),
+        color: new Color(1, 0, 0),
         roughness: 0.2,
         metalness: 0.5,
       },
@@ -275,15 +342,45 @@ class SceneParticles {
         tTrailBlurred: { value: this.blurVPass.texture },
         tTrailNormal: { value: this.normalBlurVPass.texture },
         displacementOffset: { value: 0.0 },
+        trailScale: { value: 200.0 },
+        noiseScale: { value: 3.0 },
+        noiseStrength: { value: 0.2 },
+        sssColor: { value: new Color(1.0, 0.3, 0.1) },
+        sssStrength: { value: 0.5 },
+        sssDensity: { value: 0.7 },
+        sssPower: { value: 4.0 },
       },
       main: sphereFragMain,
     });
 
     this.sphere = new Mesh(new IcosahedronGeometry(1, 40), this.sphereMat);
+    // this.sphere = new Mesh(createNormalizedCubeSphere(1, 40), this.sphereMat);
+
     this.sphere.scale.z = -1;
+
+    this.debugMat = new RawShaderMaterial({
+      uniforms: {
+        tTrail: { value: null },
+        tTrailBlurred: { value: this.blurVPass.texture },
+        debugView: { value: 0 },
+        trailScale: { value: 200.0 },
+      },
+      vertexShader: debugVertexShader,
+      fragmentShader: debugFragmentShader,
+      glslVersion: GLSL3,
+    });
 
     // this.group.add(this.mesh);
     this.group.add(this.sphere);
+  }
+
+  setDebugView(view) {
+    if (view === null) {
+      this.sphere.material = this.sphereMat;
+    } else {
+      this.debugMat.uniforms.debugView.value = view;
+      this.sphere.material = this.debugMat;
+    }
   }
 
   update(simTexture, trailTexture) {
@@ -292,6 +389,7 @@ class SceneParticles {
 
     this.blurHMat.uniforms.tInput.value = trailTexture;
     this.normalBlurHMat.uniforms.tInput.value = trailTexture;
+    this.debugMat.uniforms.tTrail.value = trailTexture;
   }
 
   renderBlur(renderer) {
