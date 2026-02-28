@@ -121,36 +121,19 @@ gui.addSlider("Displacement", params.displacementOffset, -1, 1, 0.01);
 gui.addSlider("Blur Radius", params.blurRadius, 1, 100, 1);
 gui.addSlider("Normal Blur", params.normalBlurRadius, 1, 30, 1);
 gui.addSlider("Trail Scale", params.trailScale, 1, 500, 1);
-gui.addSlider("SSS Strength", params.sssStrength, 0, 0.5, 0.005);
-gui.addSlider("SSS Density", params.sssDensity, 0, 0.2, 0.005);
-gui.addSlider("SSS Power", params.sssPower, 1, 16, 0.1);
-gui.addSlider("SSS Mix", params.sssMix, 0, 1, 0.01);
+// gui.addSlider("SSS Strength", params.sssStrength, 0, 0.5, 0.005);
+// gui.addSlider("SSS Density", params.sssDensity, 0, 0.2, 0.005);
+// gui.addSlider("SSS Power", params.sssPower, 1, 16, 0.1);
+// gui.addSlider("SSS Mix", params.sssMix, 0, 1, 0.01);
 
 gui.addSeparator();
-gui.addSelect("Debug View", params.debugView, [
-  ["none", "PBR"],
-  ["trail", "Trail Map"],
-  ["blurred", "Blurred Trail"],
-]);
+// gui.addSelect("Debug View", params.debugView, [
+//   ["none", "PBR"],
+//   ["trail", "Trail Map"],
+//   ["blurred", "Blurred Trail"],
+// ]);
 gui.addButton("Randomize", randomize);
 gui.show();
-
-const mouse = new Vector2(0.5, 0.5);
-
-renderer.domElement.addEventListener("mousemove", (e) => {
-  mouse.x = e.clientX / window.innerWidth;
-  mouse.y = 1.0 - e.clientY / window.innerHeight;
-  simU.mousePos.value.copy(mouse);
-  simU.mouseSpawn.value = e.buttons === 1;
-});
-renderer.domElement.addEventListener(
-  "mousedown",
-  () => (simU.mouseSpawn.value = true),
-);
-renderer.domElement.addEventListener(
-  "mouseup",
-  () => (simU.mouseSpawn.value = false),
-);
 
 function randomize() {
   params.sensorAngle.set(Maf.randomInRange(0.1, 1.5));
