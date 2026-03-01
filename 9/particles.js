@@ -9,6 +9,7 @@ import {
   BoxGeometry,
   IcosahedronGeometry,
   Color,
+  Matrix3,
   HalfFloatType,
   RepeatWrapping,
 } from "three";
@@ -102,26 +103,26 @@ void main() {
 
 const blurFS = `
 precision highp float;
+#define MAX_TAPS 52
 
 uniform sampler2D tInput;
-uniform int blurRadius;
 uniform vec2 blurDir;
+uniform float uWeights[MAX_TAPS];
+uniform float uOffsets[MAX_TAPS];
+uniform int uCount;
 
 in vec2 vUv;
 out vec4 fragColor;
 
 void main() {
   vec2 texSize = vec2(textureSize(tInput, 0));
-  float sigma = float(blurRadius) * 0.5;
-  vec4 color = vec4(0.0);
-  float total = 0.0;
-  for (int i = -blurRadius; i <= blurRadius; i++) {
-    float fi = float(i);
-    float w = exp(-fi * fi / (2.0 * sigma * sigma));
-    color += texture(tInput, vUv + fi * blurDir / texSize) * w;
-    total += w;
+  vec4 color = texture(tInput, vUv) * uWeights[0];
+  for (int i = 1; i < MAX_TAPS; i++) {
+    if (i >= uCount) break;
+    vec2 off = uOffsets[i] * blurDir / texSize;
+    color += (texture(tInput, vUv + off) + texture(tInput, vUv - off)) * uWeights[i];
   }
-  fragColor = color / total;
+  fragColor = color;
 }
 `;
 
@@ -199,6 +200,7 @@ uniform sampler2D tTrailNormal;
 uniform float displacementOffset;
 uniform float trailScale;
 uniform float noiseScale;
+uniform mat3 viewMatrixInverse;
 uniform vec3 sssColor;
 uniform float sssStrength;
 uniform float sssDensity;
@@ -215,7 +217,6 @@ vec3 sss(float ndl, float ir) {
 }
 
 void main() {
-  mat3 viewMatrixInverse = mat3(inverse(viewMatrix));
   vec3 worldNormal = normalize(viewMatrixInverse * vNormal);
 
   // find a cheaper noise for the bumps
@@ -314,32 +315,34 @@ class SceneParticles {
       depthBuffer: false,
     };
 
-    const makeBlurPass = (blurDir, radius) => {
+    const makeBlurPass = (blurDir) => {
       const mat = new RawShaderMaterial({
         uniforms: {
           tInput: { value: null },
-          blurRadius: { value: radius },
           blurDir: { value: blurDir },
+          uWeights: { value: new Float32Array(52) },
+          uOffsets: { value: new Float32Array(52) },
+          uCount: { value: 1 },
         },
         vertexShader: orthoVS,
         fragmentShader: blurFS,
         glslVersion: GLSL3,
       });
       const pass = new ShaderPass(mat, blurFBOOptions);
-      pass.setSize(width, height);
+      pass.setSize(width / 2, height / 2);
       return { mat, pass };
     };
 
-    const bH = makeBlurPass(new Vector2(1, 0), 20);
-    const bV = makeBlurPass(new Vector2(0, 1), 20);
+    const bH = makeBlurPass(new Vector2(1, 0));
+    const bV = makeBlurPass(new Vector2(0, 1));
     this.blurHMat = bH.mat;
     this.blurHPass = bH.pass;
     this.blurVMat = bV.mat;
     this.blurVPass = bV.pass;
     this.blurVMat.uniforms.tInput.value = this.blurHPass.texture;
 
-    const nH = makeBlurPass(new Vector2(1, 0), 5);
-    const nV = makeBlurPass(new Vector2(0, 1), 5);
+    const nH = makeBlurPass(new Vector2(1, 0));
+    const nV = makeBlurPass(new Vector2(0, 1));
     this.normalBlurHMat = nH.mat;
     this.normalBlurHPass = nH.pass;
     this.normalBlurVMat = nV.mat;
@@ -356,6 +359,7 @@ class SceneParticles {
       customUniforms: {
         tTrailBlurred: { value: this.blurVPass.texture },
         tTrailNormal: { value: this.normalBlurVPass.texture },
+        viewMatrixInverse: { value: new Matrix3() },
         displacementOffset: { value: 0.0 },
         trailScale: { value: 200.0 },
         noiseScale: { value: 3.0 },
