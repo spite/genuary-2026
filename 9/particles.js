@@ -219,7 +219,7 @@ void main() {
   vec3 worldNormal = normalize(viewMatrixInverse * vNormal);
 
   // find a cheaper noise for the bumps
-  
+
   vec2 ts = 1.0 / vec2(textureSize(tTrailNormal, 0));
   float hR = texture(tTrailNormal, vUv + vec2(ts.x, 0.0)).r;
   float hL = texture(tTrailNormal, vUv - vec2(ts.x, 0.0)).r;
@@ -289,13 +289,13 @@ void main() {
 `;
 
 class SceneParticles {
-  constructor(texWidth, texHeight, width, height) {
+  constructor(width, height) {
     this.mat = new RawShaderMaterial({
       uniforms: {
         positions: { value: null },
         tTrail: { value: null },
         pointSize: { value: 1.0 },
-        resolution: { value: new Vector2(width, height) },
+        resolution: { value: new Vector2(1, 1) },
       },
       vertexShader,
       fragmentShader,
@@ -306,13 +306,6 @@ class SceneParticles {
     });
 
     this.group = new Object3D();
-
-    this.mesh = new InstancedMesh(
-      new PlaneGeometry(2, 2),
-      this.mat,
-      texWidth * texHeight,
-    );
-    this.mesh.frustumCulled = false;
 
     const blurFBOOptions = {
       type: HalfFloatType,
@@ -333,7 +326,7 @@ class SceneParticles {
         glslVersion: GLSL3,
       });
       const pass = new ShaderPass(mat, blurFBOOptions);
-      pass.setSize(2048, 1024);
+      pass.setSize(width, height);
       return { mat, pass };
     };
 
@@ -392,7 +385,6 @@ class SceneParticles {
       glslVersion: GLSL3,
     });
 
-    // this.group.add(this.mesh);
     this.group.add(this.sphere);
   }
 
