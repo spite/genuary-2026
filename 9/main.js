@@ -19,10 +19,7 @@ const maxDimension = renderer.capabilities.maxTextureSize;
 const w = maxDimension / 8;
 
 const physarumPass = new PhysarumSimulationPass(w, w / 2);
-const sceneParticles = new SceneParticles(
-  window.innerWidth,
-  window.innerHeight,
-);
+const sceneParticles = new SceneParticles(w, w / 2);
 
 const envMap = await loadEnvMap(
   `../assets/spruit_sunrise_2k.hdr.jpg`,
