@@ -10,7 +10,13 @@ import {
 } from "common";
 import { effectRAF } from "reactive";
 import GUI from "gui";
-import { Scene, Vector2, DirectionalLight, HemisphereLight } from "three";
+import {
+  Scene,
+  Vector2,
+  Matrix3,
+  DirectionalLight,
+  HemisphereLight,
+} from "three";
 import { PhysarumSimulationPass } from "./physarum.js";
 import { SceneParticles } from "./particles.js";
 import { loadEnvMap } from "modules/material.js";
@@ -46,6 +52,40 @@ sceneParticles.syncMaterial(renderer, scene);
 const simU = physarumPass.simPass.shader.uniforms;
 const trailU = physarumPass.trailPass.shader.uniforms;
 const depositU = physarumPass.depositMat.uniforms;
+
+function gaussianWeights(radius) {
+  const sigma = radius * 0.5;
+  const raw = [];
+  let total = 0;
+  for (let i = 0; i <= radius; i++) {
+    const w = Math.exp(-(i * i) / (2 * sigma * sigma));
+    raw.push(w);
+    total += i === 0 ? w : 2 * w;
+  }
+  const offsets = new Float32Array(52);
+  const weights = new Float32Array(52);
+  offsets[0] = 0;
+  weights[0] = raw[0] / total;
+  let count = 1;
+  for (let i = 1; i <= radius; i += 2) {
+    const w0 = raw[i] / total;
+    const w1 = i + 1 <= radius ? raw[i + 1] / total : 0;
+    const W = w0 + w1;
+    weights[count] = W;
+    offsets[count] = (i * w0 + (i + 1 <= radius ? (i + 1) * w1 : 0)) / W;
+    count++;
+  }
+  return { offsets, weights, count };
+}
+
+function applyBlurWeights(mat, radius) {
+  const { offsets, weights, count } = gaussianWeights(radius);
+  mat.uniforms.uWeights.value.set(weights);
+  mat.uniforms.uOffsets.value.set(offsets);
+  mat.uniforms.uCount.value = count;
+}
+
+const _viewMatrixInverse = new Matrix3();
 renderer.setClearColor(0xb70000, 1);
 
 const defaults = {
@@ -83,11 +123,11 @@ effectRAF(() => {
   sceneParticles.sphereMat.uniforms.displacementOffset.value =
     params.displacementOffset();
   const r = Math.round(params.blurRadius());
-  sceneParticles.blurHMat.uniforms.blurRadius.value = r;
-  sceneParticles.blurVMat.uniforms.blurRadius.value = r;
+  applyBlurWeights(sceneParticles.blurHMat, r);
+  applyBlurWeights(sceneParticles.blurVMat, r);
   const nr = Math.round(params.normalBlurRadius());
-  sceneParticles.normalBlurHMat.uniforms.blurRadius.value = nr;
-  sceneParticles.normalBlurVMat.uniforms.blurRadius.value = nr;
+  applyBlurWeights(sceneParticles.normalBlurHMat, nr);
+  applyBlurWeights(sceneParticles.normalBlurVMat, nr);
   const ts = params.trailScale();
   sceneParticles.sphereMat.uniforms.trailScale.value = ts;
   sceneParticles.debugMat.uniforms.trailScale.value = ts;
@@ -159,6 +199,11 @@ render(() => {
   controls.update();
 
   const dt = clock.getDelta();
+
+  _viewMatrixInverse.setFromMatrix4(camera.matrixWorld);
+  sceneParticles.sphereMat.uniforms.viewMatrixInverse.value.copy(
+    _viewMatrixInverse,
+  );
 
   if (running) {
     physarumPass.render(renderer);
